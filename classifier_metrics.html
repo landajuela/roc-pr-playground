@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>I was struggling with ROC curves, until I decided to just drag a slider.</title>
+
+<!-- Plotly for plots -->
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+
+<!-- KaTeX for the rate definitions -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+
+<!-- Editorial / scientific typography -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --bg: #fbfaf6;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --rule: #d8d4c8;
+    --paper: #ffffff;
+    --pos: #2a8e4a;     /* slightly desaturated green */
+    --neg: #c0392b;     /* warm red */
+    --accent: #1f4f8b;  /* deep navy for the threshold line */
+    --pos-soft: rgba(42,142,74,0.15);
+    --neg-soft: rgba(192,57,43,0.15);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 56px 40px 80px;
+  }
+
+  header.masthead {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  header.masthead .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  header.masthead h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: clamp(34px, 4.5vw, 52px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 12px;
+  }
+  header.masthead h1 em {
+    font-style: italic;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  header.masthead p.lede {
+    font-family: 'Fraunces', serif;
+    font-size: 18px;
+    color: var(--muted);
+    max-width: 90ch;
+    margin: 0;
+  }
+
+  /* Two-column layout: sidebar + charts */
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 0 28px;
+    align-items: start;
+  }
+  .sidebar {
+    position: sticky;
+    top: 16px;
+  }
+
+  /* Controls panel */
+  .controls {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    padding: 20px 22px;
+    margin-bottom: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .main-content { min-width: 0; }
+  .control {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .control label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .control label .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--ink);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .control input[type=range] {
+    width: 100%;
+    accent-color: var(--accent);
+  }
+  .control .hint {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+    margin-top: -2px;
+  }
+  .btn-reset {
+    width: 100%;
+    padding: 8px 0;
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn-reset:hover { border-color: var(--ink); color: var(--ink); }
+
+  /* Section labels */
+  h2.section {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    margin: 36px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--rule);
+  }
+  h2.section .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-right: 12px;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+  }
+
+  /* Plot grids */
+  .row {
+    display: grid;
+    gap: 20px;
+    margin-bottom: 8px;
+  }
+  .row.two { grid-template-columns: 1fr 1fr; }
+  .row.three { grid-template-columns: 1fr 1fr 1fr; }
+  .row.split { grid-template-columns: 1.4fr 1fr; }
+  @media (max-width: 900px) {
+    .row.two, .row.three, .row.split { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    padding: 16px;
+  }
+  .panel .panel-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .plot { width: 100%; }
+
+  /* Confusion matrix */
+  .cm {
+    display: grid;
+    grid-template-columns: auto 1fr 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+  .cm > div {
+    background: var(--paper);
+    padding: 12px 14px;
+  }
+  .cm .h {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: center;
+  }
+  .cm .h.pos { color: var(--pos); }
+  .cm .h.neg { color: var(--neg); }
+  .cm .cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    min-height: 70px;
+  }
+  .cm .cell .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+  }
+  .cm .cell .num {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 28px;
+    line-height: 1;
+  }
+  .cm .cell.tp .num { color: var(--pos); }
+  .cm .cell.tn .num { color: var(--neg); }
+  .cm .cell.fp .num { color: #b07b1c; }
+  .cm .cell.fn .num { color: #b07b1c; }
+
+  /* Rates table */
+  table.rates {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  table.rates th, table.rates td {
+    text-align: left;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: middle;
+  }
+  table.rates th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    border-bottom: 1px solid var(--ink);
+  }
+  table.rates td.metric {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+  }
+  table.rates td.def { color: var(--muted); font-size: 13px; }
+  table.rates td.val {
+    font-family: 'JetBrains Mono', monospace;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 15px;
+  }
+
+  /* Glyph legend */
+  .legend {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 18px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+  .legend .item { display: flex; align-items: center; gap: 8px; }
+  .legend .glyph {
+    width: 18px; height: 18px; border-radius: 50%;
+    display: inline-block;
+    box-sizing: border-box;
+  }
+  .legend .glyph.tp { background: var(--pos); border: 2px solid var(--pos); }
+  .legend .glyph.tn { background: var(--neg); border: 2px solid var(--neg); }
+  .legend .glyph.fp { background: var(--pos); border: 4px solid var(--neg); }
+  .legend .glyph.fn { background: var(--neg); border: 4px solid var(--pos); }
+  .legend .lbl {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    color: var(--muted);
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  footer .meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; }
+
+  .katex { font-size: 0.95em !important; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead">
+  <div class="eyebrow">Interactive · Binary Classification</div>
+  <h1>I was struggling with ROC curves, until I decided to <em>just drag a slider.</em></h1>
+  <p class="lede">A live logistic classifier, sampled fresh in your browser. Every chart — decision boundary, confusion matrix, ROC, and precision–recall — updates the moment you move a slider. No equations until you've seen the geometry first.</p>
+  <p class="lede" style="margin-top:10px;">Got a ROC curve from a real model? Drag the sliders until the shape matches — then look back at the scatter plot to see the decision boundary it implies. The abstraction becomes concrete.</p>
+</header>
+
+<div class="layout">
+<div class="sidebar">
+
+<!-- Controls -->
+<div class="controls">
+  <div class="control">
+    <label>Sample size <span class="val" id="val-NN">400</span></label>
+    <input type="range" id="NN" min="20" max="2000" step="10" value="400" />
+    <span class="hint">Total number of points drawn from both classes.</span>
+  </div>
+  <div class="control">
+    <label>Center +<span class="val" id="val-c1">0.0</span></label>
+    <input type="range" id="c1" min="-4" max="4" step="0.05" value="0.0" />
+    <span class="hint">Mean of the positive-class Gaussian along x. Move it right to make the classes easier to separate.</span>
+  </div>
+  <div class="control">
+    <label>Center &minus;<span class="val" id="val-c2">-1.5</span></label>
+    <input type="range" id="c2" min="-4" max="4" step="0.05" value="-1.5" />
+    <span class="hint">Mean of the negative-class Gaussian along x. Overlap with Center + controls how hard the problem is.</span>
+  </div>
+  <div class="control">
+    <label>Fraction positive <span class="val" id="val-imb">0.50</span></label>
+    <input type="range" id="imb" min="0.05" max="0.95" step="0.01" value="0.5" />
+    <span class="hint">Share of points that are truly positive. Push below 0.2 to simulate a rare-event (imbalanced) dataset.</span>
+  </div>
+  <div class="control">
+    <label>Probability threshold <span class="val" id="val-prob">0.50</span></label>
+    <input type="range" id="prob" min="0.01" max="0.99" step="0.005" value="0.5" />
+    <span class="hint">The cut-off: predict positive when p̂(x) ≥ this value. This is the main lever — everything else reacts to it.</span>
+  </div>
+  <button class="btn-reset" onclick="resetDefaults()">↺ Reset to defaults</button>
+</div>
+
+<!-- Glyph legend -->
+<div class="legend">
+  <span class="lbl" style="color:var(--muted);">LEGEND &middot; FILL=PREDICTED &nbsp; RING=ACTUAL</span>
+  <div class="item"><span class="glyph tp"></span><span class="lbl">TP &nbsp;pred + / actual +</span></div>
+  <div class="item"><span class="glyph fp"></span><span class="lbl">FP &nbsp;pred + / actual &minus;</span></div>
+  <div class="item"><span class="glyph fn"></span><span class="lbl">FN &nbsp;pred &minus; / actual +</span></div>
+  <div class="item"><span class="glyph tn"></span><span class="lbl">TN &nbsp;pred &minus; / actual &minus;</span></div>
+</div>
+
+</div><!-- /sidebar -->
+<div class="main-content">
+
+<!-- Sections 1 + 2: side by side -->
+<div class="row split" style="align-items: start;">
+
+  <div>
+    <h2 class="section" style="margin-top:0;"><span class="num">01</span>Input space &amp; score distribution</h2>
+    <div class="panel">
+      <div class="panel-title">Predictions @ threshold · $\hat{p} = \sigma(x_1)$ — <span style="font-weight:400;opacity:0.7;">$\sigma$ squashes the x-coordinate to $(0,1)$; the threshold is the vertical cut in the lower panel</span></div>
+      <div id="plot-combined" class="plot"></div>
+    </div>
+  </div>
+
+  <div>
+    <h2 class="section" style="margin-top:0;"><span class="num">02</span>Outcomes</h2>
+    <div class="panel">
+      <div class="panel-title">Confusion matrix</div>
+      <div class="cm" id="cm">
+        <div></div>
+        <div class="h pos">Pred +</div>
+        <div class="h neg">Pred &minus;</div>
+        <div class="h pos" style="text-align:right;">Actual +</div>
+        <div class="cell tp"><span class="label">TP</span><span class="num" id="cm-tp">0</span></div>
+        <div class="cell fn"><span class="label">FN</span><span class="num" id="cm-fn">0</span></div>
+        <div class="h neg" style="text-align:right;">Actual &minus;</div>
+        <div class="cell fp"><span class="label">FP</span><span class="num" id="cm-fp">0</span></div>
+        <div class="cell tn"><span class="label">TN</span><span class="num" id="cm-tn">0</span></div>
+      </div>
+      <div style="margin-top:18px;">
+        <table class="rates">
+          <thead>
+            <tr><th>Metric</th><th>Definition</th><th style="text-align:right;">Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="metric">TPR (Recall)</td><td class="def">$\text{TP}/(\text{TP}+\text{FN})$</td><td class="val" id="m-tpr">—</td></tr>
+            <tr><td class="metric">FPR</td><td class="def">$\text{FP}/(\text{FP}+\text{TN})$</td><td class="val" id="m-fpr">—</td></tr>
+            <tr><td class="metric">Precision</td><td class="def">$\text{TP}/(\text{TP}+\text{FP})$</td><td class="val" id="m-prec">—</td></tr>
+            <tr><td class="metric">F1</td><td class="def">$2\cdot\text{Prec}\cdot\text{Rec}/(\text{Prec}+\text{Rec})$</td><td class="val" id="m-f1">—</td></tr>
+            <tr><td class="metric">Specificity</td><td class="def">$\text{TN}/(\text{TN}+\text{FP}) = 1-\text{FPR}$</td><td class="val" id="m-spec">—</td></tr>
+            <tr><td class="metric">Accuracy</td><td class="def">$(\text{TP}+\text{TN})/N$</td><td class="val" id="m-acc">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Section 3: threshold curves + ROC + PR -->
+<h2 class="section"><span class="num">03</span>Threshold sweep</h2>
+<div class="row three">
+  <div class="panel">
+    <div class="panel-title">Precision · Recall · F1 vs threshold</div>
+    <div id="plot-prf" class="plot"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">ROC curve <span id="auc-roc-label" style="float:right;font-family:'JetBrains Mono',monospace;"></span></div>
+    <div id="plot-roc" class="plot"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Precision–Recall curve <span id="auc-pr-label" style="float:right;font-family:'JetBrains Mono',monospace;"></span></div>
+    <div id="plot-pr" class="plot"></div>
+  </div>
+</div>
+
+</div><!-- /main-content -->
+</div><!-- /layout -->
+
+<footer>
+  <span>Mikel Landajuela</span>
+  <span class="meta" id="status">READY</span>
+</footer>
+
+</div>
+
+<script>
+// ------------------------------------------------------------------
+// Math: PRNG, sampling, sigmoid, metric curves
+// ------------------------------------------------------------------
+
+// Mulberry32 — small deterministic PRNG so reseeding gives reproducible data.
+function mulberry32(a) {
+  return function () {
+    let t = (a += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeSampler(seed) {
+  const rand = mulberry32(seed);
+  // Box-Muller: standard normal pair
+  function gauss() {
+    let u = 0, v = 0;
+    while (u === 0) u = rand();
+    while (v === 0) v = rand();
+    return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  }
+  return { rand, gauss };
+}
+
+function sample2D(cx, cy, n, sampler) {
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = [cx + sampler.gauss(), cy + sampler.gauss()];
+  return out;
+}
+
+const sigmoid = (s) => 1 / (1 + Math.exp(-s));
+const logit   = (p) => Math.log(p / (1 - p));
+
+// Theta = 0 -> w = (1, 0); score = x-coordinate.
+const THETA = 0.0;
+const W = [Math.cos(THETA), Math.sin(THETA)];
+const score = (pt) => W[0] * pt[0] + W[1] * pt[1];
+
+// ------------------------------------------------------------------
+// Sweep computation: ROC, PR, threshold curves
+// ------------------------------------------------------------------
+function computeCurves(scoresPos, scoresNeg) {
+  const all = scoresPos.concat(scoresNeg).slice().sort((a, b) => b - a); // descending
+  // dedupe
+  const thresh = [];
+  for (const s of all) if (thresh.length === 0 || thresh[thresh.length - 1] !== s) thresh.push(s);
+
+  const P = scoresPos.length, N = scoresNeg.length;
+  // Sort by descending score, walk through both populations with two pointers
+  const sortedPos = scoresPos.slice().sort((a, b) => b - a);
+  const sortedNeg = scoresNeg.slice().sort((a, b) => b - a);
+  let ip = 0, in_ = 0;
+  const tpr = [], fpr = [], prec = [], f1 = [], threshProb = [];
+  for (const t of thresh) {
+    while (ip < sortedPos.length && sortedPos[ip] >= t) ip++;
+    while (in_ < sortedNeg.length && sortedNeg[in_] >= t) in_++;
+    const TP = ip, FP = in_;
+    const _tpr = P === 0 ? 0 : TP / P;
+    const _fpr = N === 0 ? 0 : FP / N;
+    const _prec = (TP + FP) === 0 ? 1 : TP / (TP + FP);
+    const _f1 = (_prec + _tpr) === 0 ? 0 : (2 * _prec * _tpr) / (_prec + _tpr);
+    tpr.push(_tpr); fpr.push(_fpr); prec.push(_prec); f1.push(_f1);
+    threshProb.push(sigmoid(t));
+  }
+
+  // AUC via trapezoid in (fpr, tpr), sorted by fpr ascending
+  const rocPairs = fpr.map((x, i) => [x, tpr[i]]).sort((a, b) => a[0] - b[0]);
+  let aucROC = 0;
+  for (let i = 1; i < rocPairs.length; i++) {
+    const [x1, y1] = rocPairs[i - 1], [x2, y2] = rocPairs[i];
+    aucROC += (x2 - x1) * (y1 + y2) / 2;
+  }
+  // AUPRC in (recall=tpr, precision)
+  const prPairs = tpr.map((x, i) => [x, prec[i]]).sort((a, b) => a[0] - b[0]);
+  let aucPR = 0;
+  for (let i = 1; i < prPairs.length; i++) {
+    const [x1, y1] = prPairs[i - 1], [x2, y2] = prPairs[i];
+    aucPR += (x2 - x1) * (y1 + y2) / 2;
+  }
+
+  return {
+    thresh, threshProb, tpr, fpr, prec, f1,
+    rocSorted: rocPairs, prSorted: prPairs,
+    aucROC, aucPR
+  };
+}
+
+// ------------------------------------------------------------------
+// Application state
+// ------------------------------------------------------------------
+const STATE = {
+  data: null,    // { posPts, negPts, scoresPos, scoresNeg, probsPos, probsNeg, prng }
+  curves: null,  // output of computeCurves
+};
+
+const SEED_BASE = 1234;
+const DEFAULTS = { NN: 400, c1: 0.0, c2: -1.5, imb: 0.5, prob: 0.5 };
+
+function resetDefaults() {
+  for (const [id, val] of Object.entries(DEFAULTS)) {
+    const el = document.getElementById(id);
+    el.value = val;
+    document.getElementById('val-' + id).textContent =
+      val % 1 === 0 ? val : val.toFixed(id === 'prob' ? 2 : 2);
+  }
+  regenerate();
+}
+
+function regenerate() {
+  const NN  = +document.getElementById('NN').value;
+  const c1  = +document.getElementById('c1').value;
+  const c2  = +document.getElementById('c2').value;
+  const imb = +document.getElementById('imb').value;
+
+  const sampler = makeSampler(SEED_BASE);
+  const nPos = Math.round(imb * NN);
+  const nNeg = NN - nPos;
+  const posPts = sample2D(c1, 1.0, nPos, sampler);
+  const negPts = sample2D(c2, 1.0, nNeg, sampler);
+
+  const scoresPos = posPts.map(score);
+  const scoresNeg = negPts.map(score);
+  const probsPos = scoresPos.map(sigmoid);
+  const probsNeg = scoresNeg.map(sigmoid);
+
+  // Plot range with padding
+  const allX = posPts.map(p => p[0]).concat(negPts.map(p => p[0]));
+  const allY = posPts.map(p => p[1]).concat(negPts.map(p => p[1]));
+  const xmin = Math.min(...allX), xmax = Math.max(...allX);
+  const ymin = Math.min(...allY), ymax = Math.max(...allY);
+  const pad = 0.15 * Math.max(xmax - xmin, ymax - ymin);
+  const prng = { x: [xmin - pad, xmax + pad], y: [ymin - pad, ymax + pad] };
+
+  STATE.data = { posPts, negPts, scoresPos, scoresNeg, probsPos, probsNeg, prng };
+  STATE.curves = computeCurves(scoresPos, scoresNeg);
+
+  rerender(); // full render
+}
+
+// ------------------------------------------------------------------
+// Plot styling — shared
+// ------------------------------------------------------------------
+const FONT = { family: 'Inter Tight, system-ui, sans-serif', size: 12, color: '#1a1a1a' };
+const POS_COLOR = '#2a8e4a';
+const NEG_COLOR = '#c0392b';
+const ACCENT    = '#1f4f8b';
+
+const baseLayout = (extra = {}) => Object.assign({
+  margin: { l: 50, r: 16, t: 12, b: 44 },
+  paper_bgcolor: 'rgba(0,0,0,0)',
+  plot_bgcolor: 'rgba(0,0,0,0)',
+  font: FONT,
+  showlegend: false,
+  xaxis: { gridcolor: '#ece8dc', zerolinecolor: '#d8d4c8', linecolor: '#1a1a1a', ticks: 'outside', tickcolor: '#1a1a1a' },
+  yaxis: { gridcolor: '#ece8dc', zerolinecolor: '#d8d4c8', linecolor: '#1a1a1a', ticks: 'outside', tickcolor: '#1a1a1a' },
+}, extra);
+
+const PLOTLY_CFG = { displayModeBar: false, responsive: true };
+
+// ------------------------------------------------------------------
+// Render: full (everything) and threshold-only (cheap path)
+// ------------------------------------------------------------------
+function rerender() {
+  drawPredAndDistribution(); // depends on threshold but rebuilt fully
+  drawThresholdCurves();
+  drawRocPr();
+  updateStats();
+}
+
+function rerenderThresholdOnly() {
+  drawPredAndDistribution();
+  drawThresholdCurves();
+  drawRocPrPointOnly();
+  updateStats();
+}
+
+function getProb()    { return +document.getElementById('prob').value; }
+function getThresh()  { return logit(getProb()); }
+
+// ------------------------------------------------------------------
+// Plot: scatter (top) + probability histogram (bottom) as subplots
+// ------------------------------------------------------------------
+function drawPredAndDistribution() {
+  const { posPts, negPts, scoresPos, scoresNeg, probsPos, probsNeg, prng } = STATE.data;
+  const prob = getProb();
+  const thr = getThresh();
+
+  const vDir = [-Math.sin(THETA), Math.cos(THETA)];
+  const p0 = [thr * W[0], thr * W[1]];
+  const tmax = 4 * Math.max(
+    Math.abs(prng.x[0]), Math.abs(prng.x[1]),
+    Math.abs(prng.y[0]), Math.abs(prng.y[1])
+  );
+
+  const corners = [
+    [p0[0] - tmax * vDir[0], p0[1] - tmax * vDir[1]],
+    [p0[0] + tmax * vDir[0], p0[1] + tmax * vDir[1]],
+    [p0[0] + tmax * vDir[0] + tmax * W[0], p0[1] + tmax * vDir[1] + tmax * W[1]],
+    [p0[0] - tmax * vDir[0] + tmax * W[0], p0[1] - tmax * vDir[1] + tmax * W[1]],
+    [p0[0] - tmax * vDir[0], p0[1] - tmax * vDir[1]]
+  ];
+
+  const splitFour = (pts, scores, isPosClass) => {
+    const tpx = [], tpy = [], fpx = [], fpy = [], tnx = [], tny = [], fnx = [], fny = [];
+    for (let i = 0; i < pts.length; i++) {
+      const predPos = scores[i] >= thr;
+      if (isPosClass && predPos)       { tpx.push(pts[i][0]); tpy.push(pts[i][1]); }
+      else if (isPosClass && !predPos) { fnx.push(pts[i][0]); fny.push(pts[i][1]); }
+      else if (!isPosClass && predPos) { fpx.push(pts[i][0]); fpy.push(pts[i][1]); }
+      else                             { tnx.push(pts[i][0]); tny.push(pts[i][1]); }
+    }
+    return { tpx, tpy, fpx, fpy, tnx, tny, fnx, fny };
+  };
+  const aPos = splitFour(posPts, scoresPos, true);
+  const aNeg = splitFour(negPts, scoresNeg, false);
+
+  const mk = (xs, ys, fill, ring) => ({
+    x: xs, y: ys, mode: 'markers', type: 'scatter',
+    marker: { color: fill, size: 7, opacity: 0.9, line: { color: ring, width: ring === fill ? 0 : 2.5 } },
+    hoverinfo: 'skip'
+  });
+
+  const axBase = { gridcolor: '#ece8dc', zerolinecolor: '#d8d4c8', linecolor: '#1a1a1a', ticks: 'outside', tickcolor: '#1a1a1a' };
+
+  const allTraces = [
+    // --- scatter (row 1, default xaxis/yaxis) ---
+    { x: corners.map(c => c[0]), y: corners.map(c => c[1]),
+      mode: 'lines', type: 'scatter', fill: 'toself',
+      fillcolor: 'rgba(42,142,74,0.07)', line: { color: 'rgba(0,0,0,0)' }, hoverinfo: 'skip', showlegend: false },
+    { x: [p0[0] - tmax * vDir[0], p0[0] + tmax * vDir[0]],
+      y: [p0[1] - tmax * vDir[1], p0[1] + tmax * vDir[1]],
+      mode: 'lines', type: 'scatter', line: { color: ACCENT, width: 2 }, hoverinfo: 'skip', showlegend: false },
+    { ...mk(aNeg.tnx, aNeg.tny, NEG_COLOR, NEG_COLOR), name: 'TN', showlegend: true },
+    { ...mk(aPos.tpx, aPos.tpy, POS_COLOR, POS_COLOR), name: 'TP', showlegend: true },
+    { ...mk(aNeg.fpx, aNeg.fpy, POS_COLOR, NEG_COLOR), name: 'FP', showlegend: true },
+    { ...mk(aPos.fnx, aPos.fny, NEG_COLOR, POS_COLOR), name: 'FN', showlegend: true },
+    // --- histogram (row 2, xaxis2/yaxis2) ---
+    { x: probsNeg, type: 'histogram', xaxis: 'x2', yaxis: 'y2',
+      xbins: { start: 0, end: 1, size: 0.025 },
+      marker: { color: NEG_COLOR, opacity: 0.55, line: { color: NEG_COLOR, width: 0.5 } },
+      name: 'Negative', hoverinfo: 'skip', showlegend: false },
+    { x: probsPos, type: 'histogram', xaxis: 'x2', yaxis: 'y2',
+      xbins: { start: 0, end: 1, size: 0.025 },
+      marker: { color: POS_COLOR, opacity: 0.55, line: { color: POS_COLOR, width: 0.5 } },
+      name: 'Positive', hoverinfo: 'skip', showlegend: false },
+  ];
+
+  Plotly.react('plot-combined', allTraces, {
+    xaxis:  { ...axBase, range: prng.x, title: { text: 'x₁', standoff: 8 }, anchor: 'y' },
+    yaxis:  { ...axBase, range: prng.y, title: { text: 'x₂', standoff: 8 }, domain: [0.40, 1.0] },
+    xaxis2: { ...axBase, range: [0, 1], title: { text: 'p̂(x) = σ(x₁)', standoff: 8 }, anchor: 'y2', showticklabels: true },
+    yaxis2: { ...axBase, title: { text: 'count', standoff: 8 }, domain: [0.0, 0.32] },
+    barmode: 'overlay',
+    margin: { l: 50, r: 16, t: 12, b: 44 },
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    font: FONT,
+    showlegend: true,
+    legend: { x: 1, y: 1, xanchor: 'right', yanchor: 'top',
+              bgcolor: 'rgba(255,255,255,0.88)', bordercolor: '#d8d4c8', borderwidth: 1,
+              font: { size: 11 } },
+    shapes: [{
+      type: 'line', xref: 'x2', yref: 'y2 domain',
+      x0: prob, x1: prob, y0: 0, y1: 1,
+      line: { color: ACCENT, width: 2, dash: 'dash' }
+    }],
+    annotations: [{
+      x: prob, y: 1, xref: 'x2', yref: 'y2 domain', xanchor: 'left', yanchor: 'top',
+      text: ` τ = ${prob.toFixed(3)}`,
+      showarrow: false,
+      font: { family: 'JetBrains Mono, monospace', size: 11, color: ACCENT }
+    }],
+    height: 600,
+  }, PLOTLY_CFG);
+}
+
+// ------------------------------------------------------------------
+// Plot 4: precision/recall/F1 vs threshold (probability x-axis)
+// ------------------------------------------------------------------
+function drawThresholdCurves() {
+  const { threshProb, prec, tpr, f1 } = STATE.curves;
+  const prob = getProb();
+  // Sort the curves by ascending probability for clean line plotting
+  const idx = threshProb.map((_, i) => i).sort((a, b) => threshProb[a] - threshProb[b]);
+  const xs = idx.map(i => threshProb[i]);
+  const traces = [
+    { x: xs, y: idx.map(i => prec[i]), type: 'scatter', mode: 'lines',
+      line: { color: '#7d6f55', width: 2 }, name: 'Precision', hoverinfo: 'skip' },
+    { x: xs, y: idx.map(i => tpr[i]),  type: 'scatter', mode: 'lines',
+      line: { color: ACCENT, width: 2 }, name: 'Recall', hoverinfo: 'skip' },
+    { x: xs, y: idx.map(i => f1[i]),   type: 'scatter', mode: 'lines',
+      line: { color: '#b07b1c', width: 2, dash: 'dot' }, name: 'F1', hoverinfo: 'skip' },
+  ];
+  Plotly.react('plot-prf', traces, baseLayout({
+    xaxis: { ...baseLayout().xaxis, range: [0, 1], title: { text: 'threshold (probability)', standoff: 8 } },
+    yaxis: { ...baseLayout().yaxis, range: [0, 1.02], title: { text: '', standoff: 8 } },
+    showlegend: true,
+    legend: { orientation: 'h', x: 0, y: -0.32, font: { family: 'JetBrains Mono, monospace', size: 11 } },
+    margin: { l: 50, r: 16, t: 12, b: 72 },
+    shapes: [{
+      type: 'line', xref: 'x', yref: 'paper',
+      x0: prob, x1: prob, y0: 0, y1: 1,
+      line: { color: ACCENT, width: 2, dash: 'dash' }
+    }],
+    height: 280
+  }), PLOTLY_CFG);
+}
+
+// ------------------------------------------------------------------
+// Plots 5 & 6: ROC and PR curves with current-threshold marker
+// ------------------------------------------------------------------
+function currentRocPoint() {
+  // For the live point, compute TPR/FPR at exactly thr, not via index lookup.
+  const { scoresPos, scoresNeg } = STATE.data;
+  const thr = getThresh();
+  let tp = 0, fp = 0;
+  for (const s of scoresPos) if (s >= thr) tp++;
+  for (const s of scoresNeg) if (s >= thr) fp++;
+  const P = scoresPos.length, N = scoresNeg.length;
+  const tpr = P === 0 ? 0 : tp / P;
+  const fpr = N === 0 ? 0 : fp / N;
+  const prec = (tp + fp) === 0 ? 1 : tp / (tp + fp);
+  return { tp, fp, tpr, fpr, prec };
+}
+
+function drawRocPr() {
+  const { rocSorted, prSorted, aucROC, aucPR } = STATE.curves;
+  const pt = currentRocPoint();
+  document.getElementById('auc-roc-label').textContent = `AUC = ${aucROC.toFixed(3)}`;
+  document.getElementById('auc-pr-label').textContent  = `AUPRC = ${aucPR.toFixed(3)}`;
+
+  const rocTraces = [
+    { // diagonal reference
+      x: [0, 1], y: [0, 1], mode: 'lines', type: 'scatter',
+      line: { color: '#bfbab0', width: 1, dash: 'dot' }, hoverinfo: 'skip'
+    },
+    {
+      x: rocSorted.map(p => p[0]), y: rocSorted.map(p => p[1]),
+      mode: 'lines', type: 'scatter',
+      line: { color: ACCENT, width: 2 },
+      fill: 'tozeroy', fillcolor: 'rgba(31,79,139,0.10)',
+      hoverinfo: 'skip'
+    },
+    {
+      x: [pt.fpr], y: [pt.tpr], mode: 'markers', type: 'scatter',
+      marker: { color: '#c0392b', size: 10, line: { color: '#1a1a1a', width: 1 } },
+      hoverinfo: 'skip'
+    }
+  ];
+  Plotly.react('plot-roc', rocTraces, baseLayout({
+    xaxis: { ...baseLayout().xaxis, range: [0, 1], title: { text: 'FPR', standoff: 8 } },
+    yaxis: { ...baseLayout().yaxis, range: [0, 1], title: { text: 'TPR', standoff: 8 }, scaleanchor: 'x' },
+    height: 280
+  }), PLOTLY_CFG);
+
+  const prTraces = [
+    {
+      x: prSorted.map(p => p[0]), y: prSorted.map(p => p[1]),
+      mode: 'lines', type: 'scatter',
+      line: { color: '#7d6f55', width: 2 },
+      fill: 'tozeroy', fillcolor: 'rgba(125,111,85,0.10)',
+      hoverinfo: 'skip'
+    },
+    {
+      x: [pt.tpr], y: [pt.prec], mode: 'markers', type: 'scatter',
+      marker: { color: '#c0392b', size: 10, line: { color: '#1a1a1a', width: 1 } },
+      hoverinfo: 'skip'
+    }
+  ];
+  Plotly.react('plot-pr', prTraces, baseLayout({
+    xaxis: { ...baseLayout().xaxis, range: [0, 1], title: { text: 'Recall', standoff: 8 } },
+    yaxis: { ...baseLayout().yaxis, range: [0, 1], title: { text: 'Precision', standoff: 8 }, scaleanchor: 'x' },
+    height: 280
+  }), PLOTLY_CFG);
+}
+
+function drawRocPrPointOnly() {
+  // Faster path: redraws everything via react() — Plotly diff is cheap.
+  drawRocPr();
+}
+
+// ------------------------------------------------------------------
+// Update confusion matrix and rates panel
+// ------------------------------------------------------------------
+function updateStats() {
+  const { scoresPos, scoresNeg } = STATE.data;
+  const thr = getThresh();
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  for (const s of scoresPos) (s >= thr ? tp++ : fn++);
+  for (const s of scoresNeg) (s >= thr ? fp++ : tn++);
+  const N = tp + fp + tn + fn;
+  const tpr = (tp + fn) === 0 ? 0 : tp / (tp + fn);
+  const fpr = (fp + tn) === 0 ? 0 : fp / (fp + tn);
+  const prec = (tp + fp) === 0 ? 1 : tp / (tp + fp);
+  const f1 = (prec + tpr) === 0 ? 0 : (2 * prec * tpr) / (prec + tpr);
+  const spec = 1 - fpr;
+  const acc = N === 0 ? 0 : (tp + tn) / N;
+
+  document.getElementById('cm-tp').textContent = tp;
+  document.getElementById('cm-fp').textContent = fp;
+  document.getElementById('cm-tn').textContent = tn;
+  document.getElementById('cm-fn').textContent = fn;
+
+  const fmt = (x) => x.toFixed(3);
+  document.getElementById('m-tpr').textContent  = fmt(tpr);
+  document.getElementById('m-fpr').textContent  = fmt(fpr);
+  document.getElementById('m-prec').textContent = fmt(prec);
+  document.getElementById('m-f1').textContent   = fmt(f1);
+  document.getElementById('m-spec').textContent = fmt(spec);
+  document.getElementById('m-acc').textContent  = fmt(acc);
+}
+
+// ------------------------------------------------------------------
+// Wire up controls
+// ------------------------------------------------------------------
+function bind() {
+  // Data-regenerating controls
+  ['NN', 'c1', 'c2', 'imb'].forEach((id) => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', () => {
+      updateValueLabels();
+      regenerate();
+    });
+  });
+  // Threshold-only control
+  document.getElementById('prob').addEventListener('input', () => {
+    updateValueLabels();
+    rerenderThresholdOnly();
+  });
+
+  function updateValueLabels() {
+    document.getElementById('val-NN').textContent   = (+document.getElementById('NN').value).toFixed(0);
+    document.getElementById('val-c1').textContent   = (+document.getElementById('c1').value).toFixed(2);
+    document.getElementById('val-c2').textContent   = (+document.getElementById('c2').value).toFixed(2);
+    document.getElementById('val-imb').textContent  = (+document.getElementById('imb').value).toFixed(2);
+    document.getElementById('val-prob').textContent = (+document.getElementById('prob').value).toFixed(3);
+  }
+  updateValueLabels();
+}
+
+bind();
+regenerate();
+</script>
+</body>
+</html>
