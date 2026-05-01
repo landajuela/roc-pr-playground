@@ -325,6 +325,19 @@
   footer .meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; }
 
   .katex { font-size: 0.95em !important; }
+
+  .model-spec {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    padding: 12px 20px;
+    margin-bottom: 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    line-height: 1.8;
+  }
+  .model-spec strong { color: var(--ink); font-weight: 500; }
 </style>
 </head>
 <body>
@@ -336,6 +349,15 @@
   <p class="lede">A live logistic classifier, sampled fresh in your browser. Every chart — decision boundary, confusion matrix, ROC, and precision–recall — updates the moment you move a slider. No equations until you've seen the geometry first.</p>
   <p class="lede" style="margin-top:10px;">Got a ROC curve from a real model? Drag the sliders until the shape matches — then look back at the scatter plot to see the decision boundary it implies. The abstraction becomes concrete.</p>
 </header>
+
+<div class="model-spec">
+  <strong>Toy model</strong> &nbsp;&middot;&nbsp;
+  Positive class: $\mathbf{x} \sim \mathcal{N}(\mu_+,\, \mathbf{I})$ &nbsp;&middot;&nbsp;
+  Negative class: $\mathbf{x} \sim \mathcal{N}(\mu_-,\, \mathbf{I})$ &nbsp;&middot;&nbsp;
+  Score: $s = x_1$ &nbsp;&middot;&nbsp;
+  Probability: $\hat{p} = \sigma(s) = \tfrac{1}{1+e^{-s}}$ &nbsp;&middot;&nbsp;
+  Predict $+$ if $\hat{p} \geq \tau$
+</div>
 
 <div class="layout">
 <div class="sidebar">
