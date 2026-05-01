@@ -151,6 +151,7 @@
     transition: border-color 0.15s, color 0.15s;
   }
   .btn-reset:hover { border-color: var(--ink); color: var(--ink); }
+  .btn-reset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* Section labels */
   h2.section {
@@ -291,7 +292,7 @@
     padding: 14px 18px;
     background: var(--paper);
     border: 1px solid var(--rule);
-    margin-bottom: 20px;
+    margin-bottom: 16px;
     font-size: 13px;
   }
   .legend .item { display: flex; align-items: center; gap: 8px; }
@@ -343,28 +344,28 @@
 <div class="controls">
   <div class="control">
     <label>Sample size <span class="val" id="val-NN">400</span></label>
-    <input type="range" id="NN" min="20" max="2000" step="10" value="400" />
+    <input type="range" id="NN" min="20" max="2000" step="10" value="400" aria-label="Sample size" />
     <span class="hint">Total number of points drawn from both classes.</span>
   </div>
   <div class="control">
     <label>Center +<span class="val" id="val-c1">0.0</span></label>
-    <input type="range" id="c1" min="-4" max="4" step="0.05" value="0.0" />
+    <input type="range" id="c1" min="-4" max="4" step="0.05" value="0.0" aria-label="Center positive class" />
     <span class="hint">Mean of the positive-class Gaussian along x. Move it right to make the classes easier to separate.</span>
   </div>
   <div class="control">
     <label>Center &minus;<span class="val" id="val-c2">-1.5</span></label>
-    <input type="range" id="c2" min="-4" max="4" step="0.05" value="-1.5" />
+    <input type="range" id="c2" min="-4" max="4" step="0.05" value="-1.5" aria-label="Center negative class" />
     <span class="hint">Mean of the negative-class Gaussian along x. Overlap with Center + controls how hard the problem is.</span>
   </div>
   <div class="control">
     <label>Fraction positive <span class="val" id="val-imb">0.50</span></label>
-    <input type="range" id="imb" min="0.05" max="0.95" step="0.01" value="0.5" />
+    <input type="range" id="imb" min="0.05" max="0.95" step="0.01" value="0.5" aria-label="Fraction positive" />
     <span class="hint">Share of points that are truly positive. Push below 0.2 to simulate a rare-event (imbalanced) dataset.</span>
   </div>
   <div class="control">
     <label>Probability threshold <span class="val" id="val-prob">0.50</span></label>
-    <input type="range" id="prob" min="0.01" max="0.99" step="0.005" value="0.5" />
-    <span class="hint">The cut-off: predict positive when p̂(x) ≥ this value. This is the main lever — everything else reacts to it.</span>
+    <input type="range" id="prob" min="0.01" max="0.99" step="0.005" value="0.5" aria-label="Probability threshold" />
+    <span class="hint">The main lever. Slide it and watch every chart update in lockstep.</span>
   </div>
   <button class="btn-reset" onclick="resetDefaults()">↺ Reset to defaults</button>
 </div>
@@ -387,7 +388,7 @@
   <div>
     <h2 class="section" style="margin-top:0;"><span class="num">01</span>Input space &amp; score distribution</h2>
     <div class="panel">
-      <div class="panel-title">Predictions @ threshold · $\hat{p} = \sigma(x_1)$ — <span style="font-weight:400;opacity:0.7;">$\sigma$ squashes the x-coordinate to $(0,1)$; the threshold is the vertical cut in the lower panel</span></div>
+      <div class="panel-title">Predictions @ threshold <span style="font-weight:400;opacity:0.6;">· top: input space · bottom: score distribution</span></div>
       <div id="plot-combined" class="plot"></div>
     </div>
   </div>
@@ -560,7 +561,7 @@ function resetDefaults() {
     const el = document.getElementById(id);
     el.value = val;
     document.getElementById('val-' + id).textContent =
-      val % 1 === 0 ? val : val.toFixed(id === 'prob' ? 2 : 2);
+      val % 1 === 0 ? val : val.toFixed(id === 'prob' ? 3 : 2);
   }
   regenerate();
 }
@@ -610,6 +611,7 @@ const baseLayout = (extra = {}) => Object.assign({
   plot_bgcolor: 'rgba(0,0,0,0)',
   font: FONT,
   showlegend: false,
+  dragmode: false,
   xaxis: { gridcolor: '#ece8dc', zerolinecolor: '#d8d4c8', linecolor: '#1a1a1a', ticks: 'outside', tickcolor: '#1a1a1a' },
   yaxis: { gridcolor: '#ece8dc', zerolinecolor: '#d8d4c8', linecolor: '#1a1a1a', ticks: 'outside', tickcolor: '#1a1a1a' },
 }, extra);
@@ -629,7 +631,7 @@ function rerender() {
 function rerenderThresholdOnly() {
   drawPredAndDistribution();
   drawThresholdCurves();
-  drawRocPrPointOnly();
+  drawRocPr();
   updateStats();
 }
 
@@ -710,6 +712,7 @@ function drawPredAndDistribution() {
     xaxis2: { ...axBase, range: [0, 1], title: { text: 'p̂(x) = σ(x₁)', standoff: 8 }, anchor: 'y2', showticklabels: true },
     yaxis2: { ...axBase, title: { text: 'count', standoff: 8 }, domain: [0.0, 0.32] },
     barmode: 'overlay',
+    dragmode: false,
     margin: { l: 50, r: 16, t: 12, b: 44 },
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(0,0,0,0)',
@@ -831,11 +834,6 @@ function drawRocPr() {
     yaxis: { ...baseLayout().yaxis, range: [0, 1], title: { text: 'Precision', standoff: 8 }, scaleanchor: 'x' },
     height: 280
   }), PLOTLY_CFG);
-}
-
-function drawRocPrPointOnly() {
-  // Faster path: redraws everything via react() — Plotly diff is cheap.
-  drawRocPr();
 }
 
 // ------------------------------------------------------------------
