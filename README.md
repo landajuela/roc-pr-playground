@@ -1,6 +1,6 @@
-# roc-pr-playground
+# ROC Curves Explained: An Interactive Visual Guide
 
-An interactive visualization of binary classifier metrics — open `classifier_metrics.html` directly in any browser, no server or install required.
+An interactive visualization of binary classifier metrics — open `index.html` directly in any browser, no server or install required.
 
 ## What it does
 
