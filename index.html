@@ -422,6 +422,7 @@
     <span class="hint">The main lever. Slide it and watch every chart update in lockstep.</span>
   </div>
   <button class="btn-reset" onclick="resetDefaults()">↺ Reset to defaults</button>
+  <button class="btn-reset" onclick="setRandomClassifier()" style="margin-top:-8px;">⚄ Random classifier</button>
 </div>
 
 <!-- Glyph legend -->
@@ -506,6 +507,28 @@
   <p><strong>Lower the threshold</strong> → more positives predicted → recall rises, precision falls (more false alarms).</p>
   <p><strong>Raise the threshold</strong> → fewer positives predicted → precision rises, recall falls (more misses).</p>
   <p>Predict positive on everything and recall is perfect — but precision collapses. Predict positive only when certain and precision is high — but you miss many true positives. The F1 score and the PR curve make this trade-off explicit so you can pick the operating point that fits your cost structure.</p>
+</div>
+
+<!-- Section 4: Youden's J -->
+<h2 class="section"><span class="num">04</span>Youden's J — optimal threshold</h2>
+<div class="row">
+  <div class="panel">
+    <div class="panel-title">
+      Youden's J vs threshold
+      <span id="youden-best-label" style="float:right;font-family:'JetBrains Mono',monospace;font-weight:400;opacity:0.85;"></span>
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
+      $J(\tau) = \mathrm{TPR}(\tau) + \mathrm{TNR}(\tau) - 1 = \mathrm{TPR}(\tau) - \mathrm{FPR}(\tau)$
+    </div>
+    <div id="plot-youden" class="plot"></div>
+  </div>
+</div>
+
+<div class="tradeoff-note" style="margin-top:8px;">
+  <div class="tradeoff-title">Why Youden's J gives the optimal threshold</div>
+  <p>$J(\tau) = \mathrm{TPR}(\tau) - \mathrm{FPR}(\tau)$ measures how much better the classifier is than random at a given cut-off. A random classifier has $J = 0$; a perfect one has $J = 1$.</p>
+  <p><strong>The Youden threshold</strong> $\tau^\star = \arg\max_\tau J(\tau)$ maximises the vertical distance between the ROC curve and the diagonal chance line — it is the point on the ROC curve furthest from the no-skill baseline.</p>
+  <p>This criterion implicitly weights sensitivity and specificity equally. If a false negative is much costlier than a false positive (e.g. cancer screening), you may prefer a lower threshold than $\tau^\star$ even though $J$ is slightly smaller there.</p>
 </div>
 
 </div><!-- /main-content -->
@@ -601,8 +624,12 @@ function computeCurves(scoresPos, scoresNeg) {
     aucPR += (x2 - x1) * (y1 + y2) / 2;
   }
 
+  const j = tpr.map((t, i) => t - fpr[i]);
+  let jBestIdx = 0;
+  for (let i = 1; i < j.length; i++) if (j[i] > j[jBestIdx]) jBestIdx = i;
+
   return {
-    thresh, threshProb, tpr, fpr, prec, f1,
+    thresh, threshProb, tpr, fpr, prec, f1, j, jBestIdx,
     rocSorted: rocPairs, prSorted: prPairs,
     aucROC, aucPR
   };
@@ -625,6 +652,16 @@ function resetDefaults() {
     el.value = val;
     document.getElementById('val-' + id).textContent =
       val % 1 === 0 ? val : val.toFixed(id === 'prob' ? 3 : 2);
+  }
+  regenerate();
+}
+
+function setRandomClassifier() {
+  // Overlap both Gaussians at the same center → TPR ≈ FPR everywhere → J ≈ 0
+  const center = 0.0;
+  for (const id of ['c1', 'c2']) {
+    document.getElementById(id).value = center;
+    document.getElementById('val-' + id).textContent = center.toFixed(2);
   }
   regenerate();
 }
@@ -688,6 +725,7 @@ function rerender() {
   drawPredAndDistribution(); // depends on threshold but rebuilt fully
   drawThresholdCurves();
   drawRocPr();
+  drawYoudenJ();
   updateStats();
 }
 
@@ -695,6 +733,7 @@ function rerenderThresholdOnly() {
   drawPredAndDistribution();
   drawThresholdCurves();
   drawRocPr();
+  drawYoudenJ();
   updateStats();
 }
 
@@ -895,6 +934,71 @@ function drawRocPr() {
   Plotly.react('plot-pr', prTraces, baseLayout({
     xaxis: { ...baseLayout().xaxis, range: [0, 1], title: { text: 'Recall', standoff: 8 } },
     yaxis: { ...baseLayout().yaxis, range: [0, 1], title: { text: 'Precision', standoff: 8 }, scaleanchor: 'x' },
+    height: 280
+  }), PLOTLY_CFG);
+}
+
+// ------------------------------------------------------------------
+// Plot 7: Youden's J vs threshold
+// ------------------------------------------------------------------
+function drawYoudenJ() {
+  const { threshProb, j, jBestIdx } = STATE.curves;
+  const prob = getProb();
+
+  const idx = threshProb.map((_, i) => i).sort((a, b) => threshProb[a] - threshProb[b]);
+  const xs = idx.map(i => threshProb[i]);
+  const ys = idx.map(i => j[i]);
+
+  const bestProb = threshProb[jBestIdx];
+  const bestJ    = j[jBestIdx];
+
+  const pt   = currentRocPoint();
+  const curJ = pt.tpr - pt.fpr;
+
+  document.getElementById('youden-best-label').textContent =
+    `J★ = ${bestJ.toFixed(3)}  ·  τ★ = ${bestProb.toFixed(3)}`;
+
+  const traces = [
+    { x: xs, y: ys, type: 'scatter', mode: 'lines',
+      line: { color: '#7b3f9e', width: 2.5 }, hoverinfo: 'skip' },
+    { x: [bestProb], y: [bestJ], mode: 'markers', type: 'scatter',
+      marker: { color: '#c0392b', size: 12, symbol: 'star',
+                line: { color: '#1a1a1a', width: 1 } }, hoverinfo: 'skip' },
+    { x: [prob], y: [curJ], mode: 'markers', type: 'scatter',
+      marker: { color: '#c0392b', size: 9, line: { color: '#1a1a1a', width: 1 } },
+      hoverinfo: 'skip' }
+  ];
+
+  Plotly.react('plot-youden', traces, baseLayout({
+    xaxis: { ...baseLayout().xaxis, range: [0, 1],
+             title: { text: 'threshold τ (probability)', standoff: 8 } },
+    yaxis: { ...baseLayout().yaxis, range: [-0.22, 1.05],
+             title: { text: 'J(τ)', standoff: 8 } },
+    showlegend: false,
+    shapes: [
+      { type: 'rect', xref: 'paper', yref: 'y',
+        x0: 0, x1: 1, y0: -1, y1: 0,
+        fillcolor: 'rgba(192,57,43,0.06)', line: { width: 0 } },
+      { type: 'line', xref: 'x', yref: 'paper',
+        x0: prob, x1: prob, y0: 0, y1: 1,
+        line: { color: ACCENT, width: 2, dash: 'dash' } },
+      { type: 'line', xref: 'paper', yref: 'y',
+        x0: 0, x1: 1, y0: 0, y1: 0,
+        line: { color: '#bfbab0', width: 1.5, dash: 'dot' } }
+    ],
+    annotations: [
+      { x: bestProb, y: bestJ, xref: 'x', yref: 'y',
+        text: `  τ★ = ${bestProb.toFixed(3)}`,
+        showarrow: true, arrowhead: 2, arrowsize: 1, arrowwidth: 1.5,
+        arrowcolor: '#c0392b', ax: 44, ay: -32,
+        font: { family: 'JetBrains Mono, monospace', size: 11, color: '#c0392b' },
+        bgcolor: 'rgba(255,255,255,0.85)', borderpad: 3 },
+      { x: 0.01, y: 0, xref: 'x', yref: 'y',
+        xanchor: 'left', yanchor: 'top',
+        text: 'random classifier  (J = 0)',
+        showarrow: false,
+        font: { family: 'JetBrains Mono, monospace', size: 10, color: '#9b9488' } }
+    ],
     height: 280
   }), PLOTLY_CFG);
 }
