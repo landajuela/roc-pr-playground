@@ -389,6 +389,9 @@
   Score: $s = x_1$ &nbsp;&middot;&nbsp;
   Probability: $\hat{p} = \sigma(s) = \tfrac{1}{1+e^{-s}}$ &nbsp;&middot;&nbsp;
   Predict $+$ if $\hat{p} \geq \tau$
+  <span id="mode-badge" style="display:none; padding: 3px 10px; background: var(--accent); color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.1em; margin-left: 10px; vertical-align: middle;">
+    PRESET · POSITIVE MIXTURE · BULK @ μ₊ + 25% EASY OUTLIERS @ μ₋ + 4
+  </span>
 </div>
 
 <div class="layout">
@@ -421,8 +424,14 @@
     <input type="range" id="prob" min="0.01" max="0.99" step="0.005" value="0.5" aria-label="Probability threshold" />
     <span class="hint">The main lever. Slide it and watch every chart update in lockstep.</span>
   </div>
+  <div class="control">
+    <label>FPR cap α (pAUC) <span class="val" id="val-alpha">0.10</span></label>
+    <input type="range" id="alpha" min="0.01" max="0.5" step="0.005" value="0.1" aria-label="FPR cap alpha for partial AUC" />
+    <span class="hint">Upper limit of the false-positive rate for the partial-AUC region (section 05).</span>
+  </div>
   <button class="btn-reset" onclick="resetDefaults()">↺ Reset to defaults</button>
   <button class="btn-reset" onclick="setRandomClassifier()" style="margin-top:-8px;">⚄ Random classifier</button>
+  <button class="btn-reset" onclick="setLowFAClassifier()" style="margin-top:-8px;">★ Low-FA specialist</button>
 </div>
 
 <!-- Glyph legend -->
@@ -531,6 +540,38 @@
   <p>This criterion implicitly weights sensitivity and specificity equally. If a false negative is much costlier than a false positive (e.g. cancer screening), you may prefer a lower threshold than $\tau^\star$ even though $J$ is slightly smaller there.</p>
 </div>
 
+<!-- Section 5: low-false-alarm metrics -->
+<h2 class="section"><span class="num">05</span>Low false-alarm regime</h2>
+<div class="row two">
+  <div class="panel">
+    <div class="panel-title">
+      Partial AUC — ROC restricted to FPR ≤ α
+      <span id="pauc-label" style="float:right;font-family:'JetBrains Mono',monospace;font-weight:400;opacity:0.85;"></span>
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
+      $\mathrm{pAUC}(\alpha) = \int_{0}^{\alpha} \mathrm{TPR}\bigl(\mathrm{FPR}^{-1}(u)\bigr)\,du$
+    </div>
+    <div id="plot-pauc" class="plot"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">
+      Success @ K — top-K precision &amp; recall
+      <span id="topk-label" style="float:right;font-family:'JetBrains Mono',monospace;font-weight:400;opacity:0.85;"></span>
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">
+      $\mathrm{P@K} = \tfrac{\mathrm{TP}_K}{K}, \quad \mathrm{R@K} = \tfrac{\mathrm{TP}_K}{P}$ &nbsp;·&nbsp; rank items by score, keep the top $K$
+    </div>
+    <div id="plot-topk" class="plot"></div>
+  </div>
+</div>
+
+<div class="tradeoff-note" style="margin-top:8px;">
+  <div class="tradeoff-title">Why low-false-alarm metrics matter</div>
+  <p>The full AUC weighs every operating point equally — but many production systems can only tolerate a tiny false-alarm budget. Fraud alerts, medical screening, content moderation queues: every flag costs a human review, so only the very low-FPR slice of the ROC is operationally relevant. Two classifiers with identical AUC can behave very differently in that slice.</p>
+  <p><strong>Partial AUC $\mathrm{pAUC}(\alpha)$</strong> integrates the ROC only over $\mathrm{FPR} \in [0, \alpha]$ — the shaded strip on the left. The normalised value $\mathrm{pAUC}/\alpha$ rescales it back to $[0, 1]$ so you can compare it to the full AUC at a glance. A model that earns its AUC out in the high-FPR region (where you'd never operate) gets penalised here.</p>
+  <p><strong>Success@K</strong> reframes the same idea from the analyst's seat: <em>"of the top $K$ items the model flagged, how many were real?"</em> (precision) and <em>"how many of all the positives did we catch?"</em> (recall). The marker tracks the current threshold's $K$ — slide the probability cut-off to see how the candidate list grows.</p>
+</div>
+
 </div><!-- /main-content -->
 </div><!-- /layout -->
 
@@ -629,11 +670,43 @@ function computeCurves(scoresPos, scoresNeg) {
   let jBestIdx = 0;
   for (let i = 1; i < j.length; i++) if (j[i] > j[jBestIdx]) jBestIdx = i;
 
+  // Top-K curves: sort all (score, label) pairs descending by score, accumulate
+  const labeled = [];
+  for (const s of scoresPos) labeled.push([s, 1]);
+  for (const s of scoresNeg) labeled.push([s, 0]);
+  labeled.sort((a, b) => b[0] - a[0]);
+  const precK = [], recK = [];
+  let tpk = 0;
+  for (let i = 0; i < labeled.length; i++) {
+    tpk += labeled[i][1];
+    precK.push(tpk / (i + 1));
+    recK.push(P === 0 ? 0 : tpk / P);
+  }
+
   return {
     thresh, threshProb, tpr, fpr, prec, f1, j, jBestIdx,
     rocSorted: rocPairs, prSorted: prPairs,
-    aucROC, aucPR
+    aucROC, aucPR,
+    precK, recK
   };
+}
+
+// Partial AUC: integrate ROC over FPR ∈ [0, alpha] via trapezoid, interpolating at the alpha crossing.
+function partialAUC(rocSorted, alpha) {
+  const pts = [[0, 0], ...rocSorted];
+  let pauc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [x1, y1] = pts[i - 1];
+    const [x2, y2] = pts[i];
+    if (x1 >= alpha) break;
+    if (x2 > alpha) {
+      const yAtAlpha = y1 + (y2 - y1) * (alpha - x1) / (x2 - x1);
+      pauc += (alpha - x1) * (y1 + yAtAlpha) / 2;
+      break;
+    }
+    pauc += (x2 - x1) * (y1 + y2) / 2;
+  }
+  return pauc;
 }
 
 // ------------------------------------------------------------------
@@ -645,9 +718,22 @@ const STATE = {
 };
 
 const SEED_BASE = 1234;
-const DEFAULTS = { NN: 400, c1: 0.0, c2: -1.5, imb: 0.5, prob: 0.5 };
+const DEFAULTS = { NN: 400, c1: 0.0, c2: -1.5, imb: 0.5, prob: 0.5, alpha: 0.1 };
+
+// Low-false-alarm preset: positive class becomes a 2-component mixture.
+// A small fraction of positives is drawn from a far-right Gaussian, well above
+// all negatives — so the head of the ROC is excellent while the bulk overlaps.
+let LOW_FA_MODE = false;
+const LOW_FA = { frac: 0.25, offset: 4.0, std: 0.4 };
+
+function updateModeBadge() {
+  const badge = document.getElementById('mode-badge');
+  if (badge) badge.style.display = LOW_FA_MODE ? 'inline-block' : 'none';
+}
 
 function resetDefaults() {
+  LOW_FA_MODE = false;
+  updateModeBadge();
   for (const [id, val] of Object.entries(DEFAULTS)) {
     const el = document.getElementById(id);
     el.value = val;
@@ -659,11 +745,29 @@ function resetDefaults() {
 
 function setRandomClassifier() {
   // Overlap both Gaussians at the same center → TPR ≈ FPR everywhere → J ≈ 0
+  LOW_FA_MODE = false;
+  updateModeBadge();
   const center = 0.0;
   for (const id of ['c1', 'c2']) {
     document.getElementById(id).value = center;
     document.getElementById('val-' + id).textContent = center.toFixed(2);
   }
+  regenerate();
+}
+
+function setLowFAClassifier() {
+  // Mediocre global AUC, great low-FA: full bulk overlap (c1 = c2 = 0)
+  // plus a small chunk of positives way out at x₁ ≈ 4.
+  LOW_FA_MODE = true;
+  const preset = { c1: 0.0, c2: 0.0, imb: 0.30, prob: 0.95 };
+  for (const [id, val] of Object.entries(preset)) {
+    document.getElementById(id).value = val;
+  }
+  document.getElementById('val-c1').textContent   = '0.00';
+  document.getElementById('val-c2').textContent   = '0.00';
+  document.getElementById('val-imb').textContent  = '0.30';
+  document.getElementById('val-prob').textContent = '0.950';
+  updateModeBadge();
   regenerate();
 }
 
@@ -676,7 +780,25 @@ function regenerate() {
   const sampler = makeSampler(SEED_BASE);
   const nPos = Math.round(imb * NN);
   const nNeg = NN - nPos;
-  const posPts = sample2D(c1, 1.0, nPos, sampler);
+
+  let posPts;
+  if (LOW_FA_MODE) {
+    // Easy outliers are anchored to the *negative* center so they always sit
+    // well above the negatives — that's the property that drives low-FA wins.
+    // Bulk positives still follow c1, so c1/c2/imb/NN all stay meaningful
+    // while the mixture preset is active.
+    const nEasy = Math.floor(LOW_FA.frac * nPos);
+    const easyCenter = c2 + LOW_FA.offset;
+    const easyPts = new Array(nEasy);
+    for (let i = 0; i < nEasy; i++) {
+      easyPts[i] = [easyCenter + LOW_FA.std * sampler.gauss(),
+                    1.0 + sampler.gauss()];
+    }
+    const bulkPts = sample2D(c1, 1.0, nPos - nEasy, sampler);
+    posPts = bulkPts.concat(easyPts);
+  } else {
+    posPts = sample2D(c1, 1.0, nPos, sampler);
+  }
   const negPts = sample2D(c2, 1.0, nNeg, sampler);
 
   const scoresPos = posPts.map(score);
@@ -727,6 +849,8 @@ function rerender() {
   drawThresholdCurves();
   drawRocPr();
   drawYoudenJ();
+  drawPartialAUC();
+  drawTopK();
   updateStats();
 }
 
@@ -735,11 +859,13 @@ function rerenderThresholdOnly() {
   drawThresholdCurves();
   drawRocPr();
   drawYoudenJ();
+  drawTopK(); // marker depends on threshold
   updateStats();
 }
 
 function getProb()    { return +document.getElementById('prob').value; }
 function getThresh()  { return logit(getProb()); }
+function getAlpha()   { return +document.getElementById('alpha').value; }
 
 // ------------------------------------------------------------------
 // Plot: scatter (top) + probability histogram (bottom) as subplots
@@ -1005,6 +1131,119 @@ function drawYoudenJ() {
 }
 
 // ------------------------------------------------------------------
+// Plot 8: Partial AUC — ROC with shaded region for FPR ∈ [0, α]
+// ------------------------------------------------------------------
+function drawPartialAUC() {
+  const { rocSorted } = STATE.curves;
+  const alpha = getAlpha();
+  const pauc = partialAUC(rocSorted, alpha);
+  const paucNorm = alpha === 0 ? 0 : pauc / alpha;
+
+  document.getElementById('pauc-label').textContent =
+    `pAUC = ${pauc.toFixed(4)}  ·  pAUC/α = ${paucNorm.toFixed(3)}  ·  α = ${alpha.toFixed(2)}`;
+
+  // Build the polygon under the ROC curve, clipped at FPR = α.
+  const pts = [[0, 0], ...rocSorted];
+  const shadeX = [], shadeY = [];
+  let lastX = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x, y] = pts[i];
+    if (x > alpha) {
+      if (i > 0) {
+        const [px, py] = pts[i - 1];
+        const yAtAlpha = py + (y - py) * (alpha - px) / (x - px);
+        shadeX.push(alpha); shadeY.push(yAtAlpha);
+        lastX = alpha;
+      }
+      break;
+    }
+    shadeX.push(x); shadeY.push(y);
+    lastX = x;
+  }
+  // Close the polygon back down to the x-axis and to the origin.
+  shadeX.push(lastX, 0);
+  shadeY.push(0, 0);
+
+  const traces = [
+    { x: [0, 1], y: [0, 1], mode: 'lines', type: 'scatter',
+      line: { color: '#bfbab0', width: 1, dash: 'dot' }, hoverinfo: 'skip' },
+    { x: shadeX, y: shadeY,
+      mode: 'lines', type: 'scatter', fill: 'toself',
+      fillcolor: 'rgba(176,123,28,0.28)',
+      line: { color: 'rgba(0,0,0,0)' }, hoverinfo: 'skip' },
+    { x: rocSorted.map(p => p[0]), y: rocSorted.map(p => p[1]),
+      mode: 'lines', type: 'scatter',
+      line: { color: ACCENT, width: 2 }, hoverinfo: 'skip' }
+  ];
+
+  Plotly.react('plot-pauc', traces, baseLayout({
+    xaxis: { ...baseLayout().xaxis, range: [0, 1], title: { text: 'FPR', standoff: 8 } },
+    yaxis: { ...baseLayout().yaxis, range: [0, 1], title: { text: 'TPR', standoff: 8 }, scaleanchor: 'x' },
+    shapes: [{
+      type: 'line', xref: 'x', yref: 'paper',
+      x0: alpha, x1: alpha, y0: 0, y1: 1,
+      line: { color: '#b07b1c', width: 2, dash: 'dash' }
+    }],
+    annotations: [{
+      x: alpha, y: 1, xref: 'x', yref: 'paper',
+      xanchor: 'left', yanchor: 'top',
+      text: ` α = ${alpha.toFixed(2)}`,
+      showarrow: false,
+      font: { family: 'JetBrains Mono, monospace', size: 11, color: '#b07b1c' }
+    }],
+    height: 320
+  }), PLOTLY_CFG);
+}
+
+// ------------------------------------------------------------------
+// Plot 9: Success@K — top-K precision and recall vs K
+// ------------------------------------------------------------------
+function drawTopK() {
+  const { precK, recK } = STATE.curves;
+  const { scoresPos, scoresNeg } = STATE.data;
+  const Ntotal = precK.length;
+  const thr = getThresh();
+
+  let curK = 0;
+  for (const s of scoresPos) if (s >= thr) curK++;
+  for (const s of scoresNeg) if (s >= thr) curK++;
+  const curPrec = curK > 0 ? precK[curK - 1] : 1;
+  const curRec  = curK > 0 ? recK[curK - 1]  : 0;
+
+  document.getElementById('topk-label').textContent =
+    `K = ${curK}  ·  P@K = ${curPrec.toFixed(3)}  ·  R@K = ${curRec.toFixed(3)}`;
+
+  const Ks = precK.map((_, i) => i + 1);
+
+  const traces = [
+    { x: Ks, y: precK, mode: 'lines', type: 'scatter',
+      line: { color: '#7d6f55', width: 2 }, name: 'Precision@K', hoverinfo: 'skip' },
+    { x: Ks, y: recK, mode: 'lines', type: 'scatter',
+      line: { color: ACCENT, width: 2 }, name: 'Recall@K', hoverinfo: 'skip' },
+    { x: [curK], y: [curPrec], mode: 'markers', type: 'scatter',
+      marker: { color: '#7d6f55', size: 9, line: { color: '#1a1a1a', width: 1 } },
+      hoverinfo: 'skip', showlegend: false },
+    { x: [curK], y: [curRec], mode: 'markers', type: 'scatter',
+      marker: { color: ACCENT, size: 9, line: { color: '#1a1a1a', width: 1 } },
+      hoverinfo: 'skip', showlegend: false }
+  ];
+
+  Plotly.react('plot-topk', traces, baseLayout({
+    xaxis: { ...baseLayout().xaxis, range: [0, Ntotal], title: { text: 'K  (top-K items by score)', standoff: 8 } },
+    yaxis: { ...baseLayout().yaxis, range: [0, 1.02], title: { text: '', standoff: 8 } },
+    showlegend: true,
+    legend: { orientation: 'h', x: 0, y: -0.32, font: { family: 'JetBrains Mono, monospace', size: 11 } },
+    margin: { l: 50, r: 16, t: 12, b: 72 },
+    shapes: [{
+      type: 'line', xref: 'x', yref: 'paper',
+      x0: curK, x1: curK, y0: 0, y1: 1,
+      line: { color: ACCENT, width: 1.5, dash: 'dash' }
+    }],
+    height: 320
+  }), PLOTLY_CFG);
+}
+
+// ------------------------------------------------------------------
 // Update confusion matrix and rates panel
 // ------------------------------------------------------------------
 function updateStats() {
@@ -1040,7 +1279,9 @@ function updateStats() {
 // Wire up controls
 // ------------------------------------------------------------------
 function bind() {
-  // Data-regenerating controls
+  // Data-regenerating controls — the low-FA preset survives these:
+  // c1 moves the bulk positives, c2 moves the negatives (and the easy
+  // outliers ride along with them), imb/NN rescale the populations.
   ['NN', 'c1', 'c2', 'imb'].forEach((id) => {
     const el = document.getElementById(id);
     el.addEventListener('input', () => {
@@ -1053,13 +1294,19 @@ function bind() {
     updateValueLabels();
     rerenderThresholdOnly();
   });
+  // Alpha-only control: only the partial-AUC panel depends on it.
+  document.getElementById('alpha').addEventListener('input', () => {
+    updateValueLabels();
+    drawPartialAUC();
+  });
 
   function updateValueLabels() {
-    document.getElementById('val-NN').textContent   = (+document.getElementById('NN').value).toFixed(0);
-    document.getElementById('val-c1').textContent   = (+document.getElementById('c1').value).toFixed(2);
-    document.getElementById('val-c2').textContent   = (+document.getElementById('c2').value).toFixed(2);
-    document.getElementById('val-imb').textContent  = (+document.getElementById('imb').value).toFixed(2);
-    document.getElementById('val-prob').textContent = (+document.getElementById('prob').value).toFixed(3);
+    document.getElementById('val-NN').textContent    = (+document.getElementById('NN').value).toFixed(0);
+    document.getElementById('val-c1').textContent    = (+document.getElementById('c1').value).toFixed(2);
+    document.getElementById('val-c2').textContent    = (+document.getElementById('c2').value).toFixed(2);
+    document.getElementById('val-imb').textContent   = (+document.getElementById('imb').value).toFixed(2);
+    document.getElementById('val-prob').textContent  = (+document.getElementById('prob').value).toFixed(3);
+    document.getElementById('val-alpha').textContent = (+document.getElementById('alpha').value).toFixed(2);
   }
   updateValueLabels();
 }
