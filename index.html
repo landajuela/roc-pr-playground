@@ -432,6 +432,7 @@
   <button class="btn-reset" onclick="resetDefaults()">↺ Reset to defaults</button>
   <button class="btn-reset" onclick="setRandomClassifier()" style="margin-top:-8px;">⚄ Random classifier</button>
   <button class="btn-reset" onclick="setLowFAClassifier()" style="margin-top:-8px;">★ Low-FA specialist</button>
+  <button class="btn-reset" onclick="resample()" style="margin-top:-8px;">⟳ Resample (new seed)</button>
 </div>
 
 <!-- Glyph legend -->
@@ -629,9 +630,11 @@ const score = (pt) => W[0] * pt[0] + W[1] * pt[1];
 // ------------------------------------------------------------------
 function computeCurves(scoresPos, scoresNeg) {
   const all = scoresPos.concat(scoresNeg).slice().sort((a, b) => b - a); // descending
-  // dedupe
-  const thresh = [];
-  for (const s of all) if (thresh.length === 0 || thresh[thresh.length - 1] !== s) thresh.push(s);
+  // Sentinel above every score so the sweep includes the "predict nothing
+  // positive" point — ROC reaches (0,0) and the AUC trapezoid covers the
+  // full FPR range.
+  const thresh = [Infinity];
+  for (const s of all) if (thresh[thresh.length - 1] !== s) thresh.push(s);
 
   const P = scoresPos.length, N = scoresNeg.length;
   // Sort by descending score, walk through both populations with two pointers
@@ -718,6 +721,7 @@ const STATE = {
 };
 
 const SEED_BASE = 1234;
+let seedOffset = 0; // bumped by the Resample button for a fresh draw
 const DEFAULTS = { NN: 400, c1: 0.0, c2: -1.5, imb: 0.5, prob: 0.5, alpha: 0.1 };
 
 // Low-false-alarm preset: positive class becomes a 2-component mixture.
@@ -731,8 +735,14 @@ function updateModeBadge() {
   if (badge) badge.style.display = LOW_FA_MODE ? 'inline-block' : 'none';
 }
 
+function resample() {
+  seedOffset++;
+  regenerate();
+}
+
 function resetDefaults() {
   LOW_FA_MODE = false;
+  seedOffset = 0;
   updateModeBadge();
   for (const [id, val] of Object.entries(DEFAULTS)) {
     const el = document.getElementById(id);
@@ -777,7 +787,7 @@ function regenerate() {
   const c2  = +document.getElementById('c2').value;
   const imb = +document.getElementById('imb').value;
 
-  const sampler = makeSampler(SEED_BASE);
+  const sampler = makeSampler(SEED_BASE + seedOffset);
   const nPos = Math.round(imb * NN);
   const nNeg = NN - nPos;
 
@@ -1000,18 +1010,23 @@ function drawThresholdCurves() {
 // ------------------------------------------------------------------
 // Plots 5 & 6: ROC and PR curves with current-threshold marker
 // ------------------------------------------------------------------
-function currentRocPoint() {
-  // For the live point, compute TPR/FPR at exactly thr, not via index lookup.
+function confusionAt(thr) {
+  // Compute the confusion counts and rates at exactly thr, not via index lookup.
   const { scoresPos, scoresNeg } = STATE.data;
-  const thr = getThresh();
   let tp = 0, fp = 0;
   for (const s of scoresPos) if (s >= thr) tp++;
   for (const s of scoresNeg) if (s >= thr) fp++;
   const P = scoresPos.length, N = scoresNeg.length;
+  const fn = P - tp, tn = N - fp;
   const tpr = P === 0 ? 0 : tp / P;
   const fpr = N === 0 ? 0 : fp / N;
   const prec = (tp + fp) === 0 ? 1 : tp / (tp + fp);
-  return { tp, fp, tpr, fpr, prec };
+  const f1 = (prec + tpr) === 0 ? 0 : (2 * prec * tpr) / (prec + tpr);
+  return { tp, fp, tn, fn, tpr, fpr, prec, f1 };
+}
+
+function currentRocPoint() {
+  return confusionAt(getThresh());
 }
 
 function drawRocPr() {
@@ -1200,13 +1215,10 @@ function drawPartialAUC() {
 // ------------------------------------------------------------------
 function drawTopK() {
   const { precK, recK } = STATE.curves;
-  const { scoresPos, scoresNeg } = STATE.data;
   const Ntotal = precK.length;
-  const thr = getThresh();
 
-  let curK = 0;
-  for (const s of scoresPos) if (s >= thr) curK++;
-  for (const s of scoresNeg) if (s >= thr) curK++;
+  const cm = confusionAt(getThresh());
+  const curK = cm.tp + cm.fp;
   const curPrec = curK > 0 ? precK[curK - 1] : 1;
   const curRec  = curK > 0 ? recK[curK - 1]  : 0;
 
@@ -1247,16 +1259,8 @@ function drawTopK() {
 // Update confusion matrix and rates panel
 // ------------------------------------------------------------------
 function updateStats() {
-  const { scoresPos, scoresNeg } = STATE.data;
-  const thr = getThresh();
-  let tp = 0, fp = 0, tn = 0, fn = 0;
-  for (const s of scoresPos) (s >= thr ? tp++ : fn++);
-  for (const s of scoresNeg) (s >= thr ? fp++ : tn++);
+  const { tp, fp, tn, fn, tpr, fpr, prec, f1 } = confusionAt(getThresh());
   const N = tp + fp + tn + fn;
-  const tpr = (tp + fn) === 0 ? 0 : tp / (tp + fn);
-  const fpr = (fp + tn) === 0 ? 0 : fp / (fp + tn);
-  const prec = (tp + fp) === 0 ? 1 : tp / (tp + fp);
-  const f1 = (prec + tpr) === 0 ? 0 : (2 * prec * tpr) / (prec + tpr);
   const spec = 1 - fpr;
   const acc = N === 0 ? 0 : (tp + tn) / N;
 
@@ -1278,7 +1282,21 @@ function updateStats() {
 // ------------------------------------------------------------------
 // Wire up controls
 // ------------------------------------------------------------------
+// Coalesce slider drags to at most one call per animation frame.
+function rafThrottle(fn) {
+  let pending = false;
+  return () => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; fn(); });
+  };
+}
+
 function bind() {
+  const throttledRegenerate = rafThrottle(regenerate);
+  const throttledThreshold  = rafThrottle(rerenderThresholdOnly);
+  const throttledPartialAUC = rafThrottle(drawPartialAUC);
+
   // Data-regenerating controls — the low-FA preset survives these:
   // c1 moves the bulk positives, c2 moves the negatives (and the easy
   // outliers ride along with them), imb/NN rescale the populations.
@@ -1286,18 +1304,18 @@ function bind() {
     const el = document.getElementById(id);
     el.addEventListener('input', () => {
       updateValueLabels();
-      regenerate();
+      throttledRegenerate();
     });
   });
   // Threshold-only control
   document.getElementById('prob').addEventListener('input', () => {
     updateValueLabels();
-    rerenderThresholdOnly();
+    throttledThreshold();
   });
   // Alpha-only control: only the partial-AUC panel depends on it.
   document.getElementById('alpha').addEventListener('input', () => {
     updateValueLabels();
-    drawPartialAUC();
+    throttledPartialAUC();
   });
 
   function updateValueLabels() {
