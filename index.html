@@ -31,6 +31,8 @@
     --accent: #1f4f8b;  /* deep navy for the threshold line */
     --pos-soft: rgba(42,142,74,0.15);
     --neg-soft: rgba(192,57,43,0.15);
+    --err: #b07b1c;      /* errors (FP, FN) — correctness owns color in the matrix */
+    --err-cell: #f9f4ea; /* opaque so the grid gaps don't bleed through */
   }
 
   * { box-sizing: border-box; }
@@ -246,10 +248,10 @@
     font-size: 28px;
     line-height: 1;
   }
-  .cm .cell.tp .num { color: var(--pos); }
-  .cm .cell.tn .num { color: var(--neg); }
-  .cm .cell.fp .num { color: #b07b1c; }
-  .cm .cell.fn .num { color: #b07b1c; }
+  /* Numbers encode correctness, not class: headers already carry pos/neg. */
+  .cm .cell.tp .num, .cm .cell.tn .num { color: var(--ink); }
+  .cm .cell.fp .num, .cm .cell.fn .num { color: var(--err); }
+  .cm .cell.fp, .cm .cell.fn { background: var(--err-cell); }
 
   /* Rates table */
   table.rates {
@@ -1049,7 +1051,7 @@ function drawRocPr() {
     },
     {
       x: [pt.fpr], y: [pt.tpr], mode: 'markers', type: 'scatter',
-      marker: { color: '#c0392b', size: 10, line: { color: '#1a1a1a', width: 1 } },
+      marker: { color: ACCENT, size: 10, line: { color: '#ffffff', width: 1.5 } },
       hoverinfo: 'skip'
     }
   ];
@@ -1069,7 +1071,7 @@ function drawRocPr() {
     },
     {
       x: [pt.tpr], y: [pt.prec], mode: 'markers', type: 'scatter',
-      marker: { color: '#c0392b', size: 10, line: { color: '#1a1a1a', width: 1 } },
+      marker: { color: ACCENT, size: 10, line: { color: '#ffffff', width: 1.5 } },
       hoverinfo: 'skip'
     }
   ];
@@ -1104,10 +1106,10 @@ function drawYoudenJ() {
     { x: xs, y: ys, type: 'scatter', mode: 'lines',
       line: { color: '#7b3f9e', width: 2.5 }, hoverinfo: 'skip' },
     { x: [bestProb], y: [bestJ], mode: 'markers', type: 'scatter',
-      marker: { color: '#c0392b', size: 12, symbol: 'star',
-                line: { color: '#1a1a1a', width: 1 } }, hoverinfo: 'skip' },
+      marker: { color: '#7b3f9e', size: 12, symbol: 'star',
+                line: { color: '#ffffff', width: 1 } }, hoverinfo: 'skip' },
     { x: [prob], y: [curJ], mode: 'markers', type: 'scatter',
-      marker: { color: '#c0392b', size: 9, line: { color: '#1a1a1a', width: 1 } },
+      marker: { color: ACCENT, size: 9, line: { color: '#ffffff', width: 1.5 } },
       hoverinfo: 'skip' }
   ];
 
@@ -1132,8 +1134,8 @@ function drawYoudenJ() {
       { x: bestProb, y: bestJ, xref: 'x', yref: 'y',
         text: `  τ★ = ${bestProb.toFixed(3)}`,
         showarrow: true, arrowhead: 2, arrowsize: 1, arrowwidth: 1.5,
-        arrowcolor: '#c0392b', ax: 44, ay: -32,
-        font: { family: 'JetBrains Mono, monospace', size: 11, color: '#c0392b' },
+        arrowcolor: '#7b3f9e', ax: 44, ay: -32,
+        font: { family: 'JetBrains Mono, monospace', size: 11, color: '#7b3f9e' },
         bgcolor: 'rgba(255,255,255,0.85)', borderpad: 3 },
       { x: 0.01, y: 0, xref: 'x', yref: 'y',
         xanchor: 'left', yanchor: 'top',
