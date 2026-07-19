@@ -325,17 +325,78 @@
 
   .tradeoff-note {
     margin: 20px auto 0;
-    padding: 24px 28px;
     border: 1px solid var(--rule);
     background: var(--paper);
     max-width: 1000px;
   }
-  .tradeoff-note .tradeoff-title {
+  /* Collapsible disclosure: the title is the clickable summary */
+  .tradeoff-note > summary {
     font-family: 'Fraunces', serif;
     font-weight: 600;
     font-size: 16px;
-    margin-bottom: 12px;
+    padding: 20px 28px;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    user-select: none;
+    transition: color 0.15s ease;
   }
+  .tradeoff-note > summary::-webkit-details-marker { display: none; }
+  .tradeoff-note > summary:hover { color: var(--accent); }
+  .tradeoff-note > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* Chevron drawn from two borders; rotates when its disclosure is open */
+  .chevron {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-right: 2px solid var(--muted);
+    border-bottom: 2px solid var(--muted);
+    transform: rotate(-45deg);
+    transition: transform 0.2s ease;
+  }
+  details[open] > summary .chevron { transform: rotate(45deg); }
+  .tradeoff-note[open] > summary { padding-bottom: 6px; }
+  .tradeoff-body {
+    padding: 0 28px 22px 50px;
+  }
+  /* Ordered proof steps inside a note */
+  .tradeoff-note ol.proof {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 4px 0 12px;
+    padding-left: 22px;
+  }
+  .tradeoff-note ol.proof > li { margin-bottom: 12px; padding-left: 4px; }
+  .tradeoff-note ol.proof > li:last-child { margin-bottom: 0; }
+  /* Nested "step-by-step proof" disclosure, lighter than its parent */
+  .tradeoff-note details.subproof {
+    border: 1px dashed var(--rule);
+    background: var(--bg);
+    margin: 4px 0 12px;
+  }
+  .tradeoff-note details.subproof > summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 12px 16px;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    user-select: none;
+    transition: color 0.15s ease;
+  }
+  .tradeoff-note details.subproof > summary::-webkit-details-marker { display: none; }
+  .tradeoff-note details.subproof > summary:hover { color: var(--accent); }
+  .tradeoff-note details.subproof > summary .chevron { margin-top: 0; }
+  .tradeoff-note details.subproof .subproof-body { padding: 4px 18px 16px 34px; }
   .tradeoff-note p {
     font-size: 14px;
     color: var(--muted);
@@ -513,13 +574,55 @@
   </div>
 </div>
 
-<div class="tradeoff-note">
-  <div class="tradeoff-title">Why precision and recall trade off</div>
+<details class="tradeoff-note">
+  <summary><span class="chevron"></span><span>Why precision and recall trade off</span></summary>
+  <div class="tradeoff-body">
   <p>Both share TP in the numerator, but their denominators pull in opposite directions as you move the threshold.</p>
   <p><strong>Lower the threshold</strong> → more positives predicted → recall rises, precision falls (more false alarms).</p>
   <p><strong>Raise the threshold</strong> → fewer positives predicted → precision rises, recall falls (more misses).</p>
   <p>Predict positive on everything and recall is perfect — but precision collapses. Predict positive only when certain and precision is high — but you miss many true positives. The F1 score and the PR curve make this trade-off explicit so you can pick the operating point that fits your cost structure.</p>
-</div>
+  </div>
+</details>
+
+<details class="tradeoff-note" style="margin-top:8px;">
+  <summary><span class="chevron"></span><span>What the ROC-AUC actually measures: $\Pr\!\big[\,s(\text{binder}) > s(\text{non-binder})\,\big]$</span></summary>
+  <div class="tradeoff-body">
+  <p>The AUC has a threshold-free interpretation that needs no confusion matrix at all. Draw one <strong>binder</strong> (positive) and one <strong>non-binder</strong> (negative) at random. The AUC is exactly the probability that the model scores the binder higher:</p>
+  <p style="text-align:center;">$\mathrm{AUC} = \Pr\!\big[\,s(X^{+}) > s(X^{-})\,\big] + \tfrac{1}{2}\Pr\!\big[\,s(X^{+}) = s(X^{-})\,\big]$</p>
+  <p>where $X^{+}$ is a random binder and $X^{-}$ a random non-binder (the second term just splits ties evenly). So AUC $= 0.5$ means the model ranks a binder above a non-binder no better than a coin flip, and AUC $= 1$ means <em>every</em> binder outscores <em>every</em> non-binder. It is a measure of <strong>ranking</strong> quality, independent of where you place the decision threshold.</p>
+  <p><strong>Why the area under the ROC equals that probability — the plain-language version.</strong> Every point on the ROC curve comes from one threshold $\tau$. Its horizontal position, $\mathrm{FPR}(\tau)$, is "what fraction of <em>non-binders</em> score above $\tau$"; its height, $\mathrm{TPR}(\tau)$, is "what fraction of <em>binders</em> score above $\tau$." Now pick a single non-binder at random. Its score marks one spot along the horizontal axis — <strong>and here is how a score becomes an FPR position:</strong> feed the non-binder's own score in as the threshold, and $\mathrm{FPR}(\text{its score})$ is the fraction of non-binders scoring above it. In other words, a non-binder's spot on the FPR axis is simply its <em>rank among the non-binders</em> — high scorers on the left (few above them, small FPR), low scorers on the right. Because FPR counts the share of non-binders cleared, each of the $n_{-}$ non-binders owns an equal strip of width $1/n_{-}$: as you lower the threshold past exactly one non-binder, FPR ticks up by $1/n_{-}$. So this non-binder claims a thin vertical strip of the curve — the strip's <em>width</em> is its equal $1/n_{-}$ share of the FPR axis, and the curve's <em>height</em> right there is exactly the chance a random binder outscores this particular non-binder. Add up (width × height) for every non-binder and you have filled in the whole area under the curve — which is therefore the <em>average</em> chance a binder beats a non-binder, i.e. $\Pr[s(X^{+}) > s(X^{-})]$.</p>
+
+  <details class="subproof">
+    <summary><span class="chevron"></span>Step-by-step proof</summary>
+    <div class="subproof-body">
+    <p>Let $f_{-}$ be the score density of the non-binders (the smooth version of their histogram). We make each step of the plain-language argument exact.</p>
+    <ol class="proof">
+      <li><strong>Read the two axes as probabilities.</strong> Fix a threshold $\tau$. By definition,
+        $$\mathrm{TPR}(\tau)=\Pr[\,s(X^{+})>\tau\,], \qquad \mathrm{FPR}(\tau)=\Pr[\,s(X^{-})>\tau\,].$$
+        As $\tau$ slides from $+\infty$ down to $-\infty$, the point $(\mathrm{FPR}(\tau),\,\mathrm{TPR}(\tau))$ sweeps the ROC curve from $(0,0)$ up to $(1,1)$.</li>
+
+      <li><strong>Write the area as an integral of height against width.</strong> "Area under the curve" means summing the height $\mathrm{TPR}$ over every sliver of width $\mathrm{d}(\mathrm{FPR})$:
+        $$\mathrm{AUC}=\int_{0}^{1}\mathrm{TPR}\;\mathrm{d}(\mathrm{FPR}).$$</li>
+
+      <li><strong>Turn the width $\mathrm{d}(\mathrm{FPR})$ into a statement about scores.</strong> Since $\mathrm{FPR}(\tau)=\Pr[\,s(X^{-})>\tau\,]=\int_{\tau}^{\infty}f_{-}(t)\,\mathrm{d}t$, nudging the threshold by a tiny $\mathrm{d}\tau$ changes the FPR by
+        $$\mathrm{d}(\mathrm{FPR}) = -\,f_{-}(\tau)\,\mathrm{d}\tau.$$
+        The minus sign just says "lower the threshold and more non-binders clear it, so FPR grows." The quantity $f_{-}(\tau)\,\mathrm{d}\tau$ is simply <em>the chance a random non-binder scores in the sliver</em> $[\tau,\tau+\mathrm{d}\tau]$ — the strip width from the picture above.</li>
+
+      <li><strong>Substitute and flip the limits.</strong> Swapping the variable of integration from $\mathrm{FPR}$ to $\tau$ sends the limits $0\to 1$ into $+\infty\to-\infty$; reversing them back to $-\infty\to+\infty$ cancels the minus sign:
+        $$\mathrm{AUC}=\int_{-\infty}^{\infty}\mathrm{TPR}(\tau)\,f_{-}(\tau)\,\mathrm{d}\tau=\int_{-\infty}^{\infty}\underbrace{\Pr[\,s(X^{+})>\tau\,]}_{\text{height}}\;\underbrace{f_{-}(\tau)\,\mathrm{d}\tau}_{\text{width}}.$$</li>
+
+      <li><strong>Recognise the law of total probability.</strong> The integrand multiplies "the non-binder's score lands near $\tau$" by "a binder beats that value $\tau$." Because the binder and the non-binder are drawn <em>independently</em>, summing this product over all possible $\tau$ is exactly the total chance the binder outscores the non-binder:
+        $$\int_{-\infty}^{\infty}\Pr[\,s(X^{+})>\tau\,]\,f_{-}(\tau)\,\mathrm{d}\tau=\Pr\!\big[\,s(X^{+})>s(X^{-})\,\big]. \qquad\blacksquare$$</li>
+    </ol>
+    <p><strong>Sanity check with real numbers (no calculus).</strong> With $n_{+}$ binders and $n_{-}$ non-binders, form all $n_{+}\!\cdot n_{-}$ possible binder–non-binder pairs. Then
+      $$\mathrm{AUC}=\frac{\#\{\text{pairs where the binder scores higher}\}+\tfrac12\,\#\{\text{ties}\}}{n_{+}\cdot n_{-}}.$$
+      This is the <strong>Mann–Whitney $U$</strong> / Wilcoxon rank-sum statistic — it is what plotting software actually computes, and it is the discrete twin of the integral above.</p>
+    </div>
+  </details>
+
+  <p>This ranking view is why the ROC is invariant to class imbalance and to any monotonic rescaling of the scores — both leave the pairwise ordering untouched. Watch it live: as you slide the class centres apart in section 01, the two score histograms separate, more binder–non-binder pairs land in the correct order, and the AUC climbs toward 1.</p>
+  </div>
+</details>
 
 <!-- Section 4: Youden's J -->
 <h2 class="section"><span class="num">04</span>Youden's J — optimal threshold</h2>
@@ -536,12 +639,14 @@
   </div>
 </div>
 
-<div class="tradeoff-note" style="margin-top:8px;">
-  <div class="tradeoff-title">Why Youden's J gives the optimal threshold</div>
+<details class="tradeoff-note" style="margin-top:8px;">
+  <summary><span class="chevron"></span><span>Why Youden's J gives the optimal threshold</span></summary>
+  <div class="tradeoff-body">
   <p>$J(\tau) = \mathrm{TPR}(\tau) - \mathrm{FPR}(\tau)$ measures how much better the classifier is than random at a given cut-off. A random classifier has $J = 0$; a perfect one has $J = 1$.</p>
   <p><strong>The Youden threshold</strong> $\tau^\star = \arg\max_\tau J(\tau)$ maximises the vertical distance between the ROC curve and the diagonal chance line — it is the point on the ROC curve furthest from the no-skill baseline.</p>
   <p>This criterion implicitly weights sensitivity and specificity equally. If a false negative is much costlier than a false positive (e.g. cancer screening), you may prefer a lower threshold than $\tau^\star$ even though $J$ is slightly smaller there.</p>
-</div>
+  </div>
+</details>
 
 <!-- Section 5: low-false-alarm metrics -->
 <h2 class="section"><span class="num">05</span>Low false-alarm regime</h2>
@@ -568,12 +673,14 @@
   </div>
 </div>
 
-<div class="tradeoff-note" style="margin-top:8px;">
-  <div class="tradeoff-title">Why low-false-alarm metrics matter</div>
+<details class="tradeoff-note" style="margin-top:8px;">
+  <summary><span class="chevron"></span><span>Why low-false-alarm metrics matter</span></summary>
+  <div class="tradeoff-body">
   <p>The full AUC weighs every operating point equally — but many production systems can only tolerate a tiny false-alarm budget. Fraud alerts, medical screening, content moderation queues: every flag costs a human review, so only the very low-FPR slice of the ROC is operationally relevant. Two classifiers with identical AUC can behave very differently in that slice.</p>
   <p><strong>Partial AUC $\mathrm{pAUC}(\alpha)$</strong> integrates the ROC only over $\mathrm{FPR} \in [0, \alpha]$ — the shaded strip on the left. The normalised value $\mathrm{pAUC}/\alpha$ rescales it back to $[0, 1]$ so you can compare it to the full AUC at a glance. A model that earns its AUC out in the high-FPR region (where you'd never operate) gets penalised here.</p>
   <p><strong>Success@K</strong> reframes the same idea from the analyst's seat: <em>"of the top $K$ items the model flagged, how many were real?"</em> (precision) and <em>"how many of all the positives did we catch?"</em> (recall). The marker tracks the current threshold's $K$ — slide the probability cut-off to see how the candidate list grows.</p>
-</div>
+  </div>
+</details>
 
 </div><!-- /main-content -->
 </div><!-- /layout -->
