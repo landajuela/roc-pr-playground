@@ -433,6 +433,16 @@
     line-height: 1.8;
   }
   .model-spec strong { color: var(--ink); font-weight: 500; }
+  .model-spec .probability-note {
+    display: block;
+    margin-top: 7px;
+    padding-top: 7px;
+    border-top: 1px solid var(--rule);
+    font-family: 'Inter Tight', system-ui, sans-serif;
+    font-size: 11px;
+    line-height: 1.5;
+    letter-spacing: 0;
+  }
 </style>
 </head>
 <body>
@@ -441,8 +451,8 @@
 <header class="masthead">
   <div class="eyebrow">Interactive · Binary Classification</div>
   <h1>ROC Curves Explained — <em>by Seeing Them.</em></h1>
-  <p class="lede">A live logistic classifier, sampled fresh in your browser. Every chart — decision boundary, confusion matrix, Receiver Operating Characteristic (ROC), and precision–recall — updates the moment you move a slider. No equations until you've seen the geometry first.</p>
-  <p class="lede" style="margin-top:10px;">Got a ROC curve from a real model? Drag the sliders until the shape matches — then look back at the scatter plot to see the decision boundary it implies. The abstraction becomes concrete.</p>
+  <p class="lede">A live toy scoring model, sampled fresh in your browser. Every chart — decision boundary, confusion matrix, Receiver Operating Characteristic (ROC), and precision–recall — updates the moment you move a slider. Start with the geometry; the equations stay close at hand.</p>
+  <p class="lede" style="margin-top:10px;">Use the sliders to explore one family of input-space geometries that produces different ROC shapes. A ROC curve summarises score rankings, but it does not uniquely determine the model or decision boundary that produced it.</p>
 </header>
 
 <div class="model-spec">
@@ -450,11 +460,12 @@
   Positive class: $\mathbf{x} \sim \mathcal{N}(\mu_+,\, \mathbf{I})$ &nbsp;&middot;&nbsp;
   Negative class: $\mathbf{x} \sim \mathcal{N}(\mu_-,\, \mathbf{I})$ &nbsp;&middot;&nbsp;
   Score: $s = x_1$ &nbsp;&middot;&nbsp;
-  Probability: $\hat{p} = \sigma(s) = \tfrac{1}{1+e^{-s}}$ &nbsp;&middot;&nbsp;
-  Predict $+$ if $\hat{p} \geq \tau$
+  Probability<sup>*</sup>: $\hat p = \sigma(s) = \tfrac{1}{1+e^{-s}}$ &nbsp;&middot;&nbsp;
+  Predict $+$ if $\hat p \geq \tau$
   <span id="mode-badge" style="display:none; padding: 3px 10px; background: var(--accent); color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.1em; margin-left: 10px; vertical-align: middle;">
     PRESET · POSITIVE MIXTURE · BULK @ μ₊ + 25% EASY OUTLIERS @ μ₋ + 4
   </span>
+  <span class="probability-note"><strong>* Predicted probability:</strong> the toy model assigns $\hat p=\sigma(s)$ rather than fitting its calibration from data. Treat it as the model's probability output; a value such as $0.8$ is not guaranteed to correspond to an $80\%$ observed positive rate.</span>
 </div>
 
 <div class="layout">
@@ -480,10 +491,10 @@
   <div class="control">
     <label>Fraction positive <span class="val" id="val-imb">0.50</span></label>
     <input type="range" id="imb" min="0.01" max="0.95" step="0.01" value="0.5" aria-label="Fraction positive" />
-    <span class="hint">Share of points that are truly positive. Push below 0.2 to simulate a rare-event (imbalanced) dataset.</span>
+    <span class="hint">Target share of positive points. Push below 0.2 for a rare-event dataset; at least one example from each class is retained.</span>
   </div>
   <div class="control">
-    <label>Probability threshold <span class="val" id="val-prob">0.50</span></label>
+    <label>Probability threshold* <span class="val" id="val-prob">0.50</span></label>
     <input type="range" id="prob" min="0.01" max="0.99" step="0.005" value="0.5" aria-label="Probability threshold" />
     <span class="hint">The main lever. Slide it and watch every chart update in lockstep.</span>
   </div>
@@ -569,7 +580,7 @@
     <div id="plot-roc" class="plot"></div>
   </div>
   <div class="panel">
-    <div class="panel-title">Precision–Recall curve <span id="auc-pr-label" style="float:right;font-family:'JetBrains Mono',monospace;"></span></div>
+    <div class="panel-title">Precision–Recall curve <span id="ap-label" style="float:right;font-family:'JetBrains Mono',monospace;"></span></div>
     <div id="plot-pr" class="plot"></div>
   </div>
 </div>
@@ -580,7 +591,8 @@
   <p>Both share TP in the numerator, but their denominators pull in opposite directions as you move the threshold.</p>
   <p><strong>Lower the threshold</strong> → more positives predicted → recall rises, precision falls (more false alarms).</p>
   <p><strong>Raise the threshold</strong> → fewer positives predicted → precision rises, recall falls (more misses).</p>
-  <p>Predict positive on everything and recall is perfect — but precision collapses. Predict positive only when certain and precision is high — but you miss many true positives. The F1 score and the PR curve make this trade-off explicit so you can pick the operating point that fits your cost structure.</p>
+  <p>Predict positive on everything and recall is perfect — but precision collapses. Keep only the highest-scored examples and precision is usually high — but you miss many true positives. The F1 score and the PR curve make this trade-off explicit so you can pick the operating point that fits your cost structure.</p>
+  <p><strong>Average Precision (AP)</strong> summarises the stepwise PR curve as $\sum_n (R_n-R_{n-1})P_n$: every gain in recall is weighted by the precision at that threshold. Examples tied at the same score enter together. By convention the curve starts at recall $0$, precision $1$; the outcomes table instead shows precision as undefined when no positives are predicted. The dashed horizontal reference is the positive-class prevalence — the expected precision of a random ranking.</p>
   </div>
 </details>
 
@@ -620,12 +632,12 @@
     </div>
   </details>
 
-  <p>This ranking view is why the ROC is invariant to class imbalance and to any monotonic rescaling of the scores — both leave the pairwise ordering untouched. Watch it live: as you slide the class centres apart in section 01, the two score histograms separate, more binder–non-binder pairs land in the correct order, and the AUC climbs toward 1.</p>
+  <p>This ranking view is why the <em>population</em> ROC is invariant to class prevalence and to any monotonic rescaling of the scores — both leave the pairwise ordering untouched. A finite sampled ROC can still move slightly when the class mix changes. Watch it live: as you slide the class centres apart in section 01, the two score histograms separate, more binder–non-binder pairs land in the correct order, and the AUC climbs toward 1.</p>
   </div>
 </details>
 
 <!-- Section 4: Youden's J -->
-<h2 class="section"><span class="num">04</span>Youden's J — optimal threshold</h2>
+<h2 class="section"><span class="num">04</span>Youden's J — balanced operating point</h2>
 <div class="row">
   <div class="panel">
     <div class="panel-title">
@@ -640,11 +652,11 @@
 </div>
 
 <details class="tradeoff-note" style="margin-top:8px;">
-  <summary><span class="chevron"></span><span>Why Youden's J gives the optimal threshold</span></summary>
+  <summary><span class="chevron"></span><span>What the J-optimal threshold balances</span></summary>
   <div class="tradeoff-body">
-  <p>$J(\tau) = \mathrm{TPR}(\tau) - \mathrm{FPR}(\tau)$ measures how much better the classifier is than random at a given cut-off. A random classifier has $J = 0$; a perfect one has $J = 1$.</p>
-  <p><strong>The Youden threshold</strong> $\tau^\star = \arg\max_\tau J(\tau)$ maximises the vertical distance between the ROC curve and the diagonal chance line — it is the point on the ROC curve furthest from the no-skill baseline.</p>
-  <p>This criterion implicitly weights sensitivity and specificity equally. If a false negative is much costlier than a false positive (e.g. cancer screening), you may prefer a lower threshold than $\tau^\star$ even though $J$ is slightly smaller there.</p>
+  <p>$J(\tau) = \mathrm{TPR}(\tau) - \mathrm{FPR}(\tau)$ measures separation from random ranking at a given cut-off. A population-level random ranking has $J = 0$; finite samples fluctuate around it, while a perfect classifier can reach $J = 1$.</p>
+  <p><strong>The J-optimal threshold</strong> $\tau^\star = \arg\max_\tau J(\tau)$ maximises the vertical distance between the ROC curve and the diagonal chance line.</p>
+  <p>This is a balanced criterion, not a universally optimal decision rule: it weights sensitivity and specificity equally and ignores class prevalence and error costs. If a false negative is much costlier than a false positive (e.g. cancer screening), you may prefer a lower threshold than $\tau^\star$ even though $J$ is slightly smaller there.</p>
   </div>
 </details>
 
@@ -676,9 +688,9 @@
 <details class="tradeoff-note" style="margin-top:8px;">
   <summary><span class="chevron"></span><span>Why low-false-alarm metrics matter</span></summary>
   <div class="tradeoff-body">
-  <p>The full AUC weighs every operating point equally — but many production systems can only tolerate a tiny false-alarm budget. Fraud alerts, medical screening, content moderation queues: every flag costs a human review, so only the very low-FPR slice of the ROC is operationally relevant. Two classifiers with identical AUC can behave very differently in that slice.</p>
-  <p><strong>Partial AUC $\mathrm{pAUC}(\alpha)$</strong> integrates the ROC only over $\mathrm{FPR} \in [0, \alpha]$ — the shaded strip on the left. The normalised value $\mathrm{pAUC}/\alpha$ rescales it back to $[0, 1]$ so you can compare it to the full AUC at a glance. A model that earns its AUC out in the high-FPR region (where you'd never operate) gets penalised here.</p>
-  <p><strong>Success@K</strong> reframes the same idea from the analyst's seat: <em>"of the top $K$ items the model flagged, how many were real?"</em> (precision) and <em>"how many of all the positives did we catch?"</em> (recall). The marker tracks the current threshold's $K$ — slide the probability cut-off to see how the candidate list grows.</p>
+  <p>The full AUC integrates sensitivity uniformly over the entire FPR axis — but many production systems can only tolerate a tiny false-alarm budget. Fraud alerts, medical screening, content moderation queues: every flag costs a human review, so only the very low-FPR slice of the ROC is operationally relevant. Two classifiers with identical AUC can behave very differently in that slice.</p>
+  <p><strong>Partial AUC $\mathrm{pAUC}(\alpha)$</strong> integrates the ROC only over $\mathrm{FPR} \in [0, \alpha]$ — the shaded strip on the left. The displayed standardised value uses the McClish correction, $\tfrac12\!\left[1+\frac{\mathrm{pAUC}-\alpha^2/2}{\alpha-\alpha^2/2}\right]$, so chance maps to $0.5$ and a perfect classifier to $1$. The raw area is also shown.</p>
+  <p><strong>Success@K</strong> reframes the same idea from the analyst's seat: <em>"of the top $K$ items the model flagged, how many were real?"</em> (precision) and <em>"how many of all the positives did we catch?"</em> (recall). The marker tracks the current threshold's $K$ — slide the probability cut-off to see how the candidate list grows. If a score tie straddles $K$, the curve reports the expected result under random ordering within the tied group.</p>
   </div>
 </details>
 
@@ -770,35 +782,54 @@ function computeCurves(scoresPos, scoresNeg) {
     const [x1, y1] = rocPairs[i - 1], [x2, y2] = rocPairs[i];
     aucROC += (x2 - x1) * (y1 + y2) / 2;
   }
-  // AUPRC in (recall=tpr, precision)
+  // Precision–recall points for plotting.
   const prPairs = tpr.map((x, i) => [x, prec[i]]).sort((a, b) => a[0] - b[0]);
-  let aucPR = 0;
-  for (let i = 1; i < prPairs.length; i++) {
-    const [x1, y1] = prPairs[i - 1], [x2, y2] = prPairs[i];
-    aucPR += (x2 - x1) * (y1 + y2) / 2;
+
+  // Average Precision: stepwise area, not trapezoidal interpolation.
+  // Each distinct score threshold enters as a group, so tied examples are
+  // handled together instead of receiving an arbitrary within-tie ordering.
+  let averagePrecision = 0;
+  for (let i = 1; i < tpr.length; i++) {
+    const recallGain = tpr[i] - tpr[i - 1];
+    if (recallGain > 0) averagePrecision += recallGain * prec[i];
   }
 
   const j = tpr.map((t, i) => t - fpr[i]);
   let jBestIdx = 0;
   for (let i = 1; i < j.length; i++) if (j[i] > j[jBestIdx]) jBestIdx = i;
 
-  // Top-K curves: sort all (score, label) pairs descending by score, accumulate
+  // Top-K curves: sort all (score, label) pairs descending by score. Within a
+  // tied score group, report the expectation under random tie-breaking rather
+  // than inheriting the input order (positives are appended first above).
   const labeled = [];
   for (const s of scoresPos) labeled.push([s, 1]);
   for (const s of scoresNeg) labeled.push([s, 0]);
   labeled.sort((a, b) => b[0] - a[0]);
   const precK = [], recK = [];
   let tpk = 0;
-  for (let i = 0; i < labeled.length; i++) {
-    tpk += labeled[i][1];
-    precK.push(tpk / (i + 1));
-    recK.push(P === 0 ? 0 : tpk / P);
+  let groupStart = 0;
+  while (groupStart < labeled.length) {
+    let groupEnd = groupStart + 1;
+    while (groupEnd < labeled.length && labeled[groupEnd][0] === labeled[groupStart][0]) {
+      groupEnd++;
+    }
+    let positivesInGroup = 0;
+    for (let i = groupStart; i < groupEnd; i++) positivesInGroup += labeled[i][1];
+    const groupSize = groupEnd - groupStart;
+    for (let offset = 1; offset <= groupSize; offset++) {
+      const expectedTP = tpk + offset * positivesInGroup / groupSize;
+      const K = groupStart + offset;
+      precK.push(expectedTP / K);
+      recK.push(P === 0 ? 0 : expectedTP / P);
+    }
+    tpk += positivesInGroup;
+    groupStart = groupEnd;
   }
 
   return {
     thresh, threshProb, tpr, fpr, prec, f1, j, jBestIdx,
     rocSorted: rocPairs, prSorted: prPairs,
-    aucROC, aucPR,
+    aucROC, averagePrecision,
     precK, recK
   };
 }
@@ -819,6 +850,14 @@ function partialAUC(rocSorted, alpha) {
     pauc += (x2 - x1) * (y1 + y2) / 2;
   }
   return pauc;
+}
+
+// McClish correction: chance maps to 0.5 and perfect classification to 1.
+function standardizedPartialAUC(pauc, alpha) {
+  if (alpha <= 0) return null;
+  const chanceArea = alpha * alpha / 2;
+  const maxArea = alpha;
+  return 0.5 * (1 + (pauc - chanceArea) / (maxArea - chanceArea));
 }
 
 // ------------------------------------------------------------------
@@ -897,7 +936,9 @@ function regenerate() {
   const imb = +document.getElementById('imb').value;
 
   const sampler = makeSampler(SEED_BASE + seedOffset);
-  const nPos = Math.round(imb * NN);
+  // ROC/PR metrics require both classes. Preserve the requested mix as closely
+  // as the finite sample permits while retaining at least one of each class.
+  const nPos = Math.min(NN - 1, Math.max(1, Math.round(imb * NN)));
   const nNeg = NN - nPos;
 
   let posPts;
@@ -987,7 +1028,7 @@ function getThresh()  { return logit(getProb()); }
 function getAlpha()   { return +document.getElementById('alpha').value; }
 
 // ------------------------------------------------------------------
-// Plot: scatter (top) + probability histogram (bottom) as subplots
+// Plot: scatter (top) + predicted-probability histogram (bottom) as subplots
 // ------------------------------------------------------------------
 function drawPredAndDistribution() {
   const { posPts, negPts, scoresPos, scoresNeg, probsPos, probsNeg, prng } = STATE.data;
@@ -1085,12 +1126,12 @@ function drawPredAndDistribution() {
 }
 
 // ------------------------------------------------------------------
-// Plot 4: precision/recall/F1 vs threshold (probability x-axis)
+// Plot 4: precision/recall/F1 vs probability threshold
 // ------------------------------------------------------------------
 function drawThresholdCurves() {
   const { threshProb, prec, tpr, f1 } = STATE.curves;
   const prob = getProb();
-  // Sort the curves by ascending probability for clean line plotting
+  // Sort the curves by ascending predicted probability for clean line plotting
   const idx = threshProb.map((_, i) => i).sort((a, b) => threshProb[a] - threshProb[b]);
   const xs = idx.map(i => threshProb[i]);
   const traces = [
@@ -1102,7 +1143,7 @@ function drawThresholdCurves() {
       line: { color: '#b07b1c', width: 2, dash: 'dot' }, name: 'F1', hoverinfo: 'skip' },
   ];
   Plotly.react('plot-prf', traces, baseLayout({
-    xaxis: { ...baseLayout().xaxis, range: [0, 1], title: { text: 'threshold (probability)', standoff: 8 } },
+    xaxis: { ...baseLayout().xaxis, range: [0, 1], title: { text: 'threshold (probability*)', standoff: 8 } },
     yaxis: { ...baseLayout().yaxis, range: [0, 1.02], title: { text: '', standoff: 8 } },
     showlegend: true,
     legend: { orientation: 'h', x: 0, y: -0.32, font: { family: 'JetBrains Mono, monospace', size: 11 } },
@@ -1127,10 +1168,12 @@ function confusionAt(thr) {
   for (const s of scoresNeg) if (s >= thr) fp++;
   const P = scoresPos.length, N = scoresNeg.length;
   const fn = P - tp, tn = N - fp;
-  const tpr = P === 0 ? 0 : tp / P;
-  const fpr = N === 0 ? 0 : fp / N;
-  const prec = (tp + fp) === 0 ? 1 : tp / (tp + fp);
-  const f1 = (prec + tpr) === 0 ? 0 : (2 * prec * tpr) / (prec + tpr);
+  const tpr = P === 0 ? null : tp / P;
+  const fpr = N === 0 ? null : fp / N;
+  const prec = (tp + fp) === 0 ? null : tp / (tp + fp);
+  const f1 = prec === null || tpr === null || (prec + tpr) === 0
+    ? null
+    : (2 * prec * tpr) / (prec + tpr);
   return { tp, fp, tn, fn, tpr, fpr, prec, f1 };
 }
 
@@ -1139,10 +1182,12 @@ function currentRocPoint() {
 }
 
 function drawRocPr() {
-  const { rocSorted, prSorted, aucROC, aucPR } = STATE.curves;
+  const { rocSorted, prSorted, aucROC, averagePrecision } = STATE.curves;
+  const { scoresPos, scoresNeg } = STATE.data;
   const pt = currentRocPoint();
+  const prevalence = scoresPos.length / (scoresPos.length + scoresNeg.length);
   document.getElementById('auc-roc-label').textContent = `AUC = ${aucROC.toFixed(3)}`;
-  document.getElementById('auc-pr-label').textContent  = `AUPRC = ${aucPR.toFixed(3)}`;
+  document.getElementById('ap-label').textContent = `AP = ${averagePrecision.toFixed(3)}`;
 
   const rocTraces = [
     { // diagonal reference
@@ -1172,7 +1217,8 @@ function drawRocPr() {
     {
       x: prSorted.map(p => p[0]), y: prSorted.map(p => p[1]),
       mode: 'lines', type: 'scatter',
-      line: { color: '#7d6f55', width: 2 },
+      // Vertical-then-horizontal steps make the shaded area agree with AP.
+      line: { color: '#7d6f55', width: 2, shape: 'vh' },
       fill: 'tozeroy', fillcolor: 'rgba(125,111,85,0.10)',
       hoverinfo: 'skip'
     },
@@ -1185,6 +1231,19 @@ function drawRocPr() {
   Plotly.react('plot-pr', prTraces, baseLayout({
     xaxis: { ...baseLayout().xaxis, range: [0, 1], title: { text: 'Recall', standoff: 8 } },
     yaxis: { ...baseLayout().yaxis, range: [0, 1], title: { text: 'Precision', standoff: 8 }, scaleanchor: 'x' },
+    shapes: [{
+      type: 'line', xref: 'x', yref: 'y',
+      x0: 0, x1: 1, y0: prevalence, y1: prevalence,
+      line: { color: '#bfbab0', width: 1.5, dash: 'dot' }
+    }],
+    annotations: [{
+      x: 0.02, y: prevalence, xref: 'x', yref: 'y',
+      xanchor: 'left', yanchor: 'bottom',
+      text: `random ranking = prevalence (${prevalence.toFixed(3)})`,
+      showarrow: false,
+      font: { family: 'JetBrains Mono, monospace', size: 9, color: '#8d877d' },
+      bgcolor: 'rgba(255,255,255,0.78)', borderpad: 2
+    }],
     height: 280
   }), PLOTLY_CFG);
 }
@@ -1204,7 +1263,7 @@ function drawYoudenJ() {
   const bestJ    = j[jBestIdx];
 
   const pt   = currentRocPoint();
-  const curJ = pt.tpr - pt.fpr;
+  const curJ = pt.tpr === null || pt.fpr === null ? null : pt.tpr - pt.fpr;
 
   document.getElementById('youden-best-label').textContent =
     `J★ = ${bestJ.toFixed(3)}  ·  τ★ = ${bestProb.toFixed(3)}`;
@@ -1222,7 +1281,7 @@ function drawYoudenJ() {
 
   Plotly.react('plot-youden', traces, baseLayout({
     xaxis: { ...baseLayout().xaxis, range: [0, 1],
-             title: { text: 'threshold τ (probability)', standoff: 8 } },
+             title: { text: 'threshold τ (probability*)', standoff: 8 } },
     yaxis: { ...baseLayout().yaxis, range: [-0.22, 1.05],
              title: { text: 'J(τ)', standoff: 8 } },
     showlegend: false,
@@ -1246,7 +1305,7 @@ function drawYoudenJ() {
         bgcolor: 'rgba(255,255,255,0.85)', borderpad: 3 },
       { x: 0.01, y: 0, xref: 'x', yref: 'y',
         xanchor: 'left', yanchor: 'top',
-        text: 'random classifier  (J = 0)',
+        text: 'random ranking  (J = 0 in expectation)',
         showarrow: false,
         font: { family: 'JetBrains Mono, monospace', size: 10, color: '#9b9488' } }
     ],
@@ -1261,10 +1320,10 @@ function drawPartialAUC() {
   const { rocSorted } = STATE.curves;
   const alpha = getAlpha();
   const pauc = partialAUC(rocSorted, alpha);
-  const paucNorm = alpha === 0 ? 0 : pauc / alpha;
+  const paucStandardized = standardizedPartialAUC(pauc, alpha);
 
   document.getElementById('pauc-label').textContent =
-    `pAUC = ${pauc.toFixed(4)}  ·  pAUC/α = ${paucNorm.toFixed(3)}  ·  α = ${alpha.toFixed(2)}`;
+    `raw = ${pauc.toFixed(4)}  ·  standardised = ${paucStandardized.toFixed(3)}  ·  α = ${alpha.toFixed(2)}`;
 
   // Build the polygon under the ROC curve, clipped at FPR = α.
   const pts = [[0, 0], ...rocSorted];
@@ -1328,11 +1387,12 @@ function drawTopK() {
 
   const cm = confusionAt(getThresh());
   const curK = cm.tp + cm.fp;
-  const curPrec = curK > 0 ? precK[curK - 1] : 1;
+  const curPrec = curK > 0 ? precK[curK - 1] : null;
   const curRec  = curK > 0 ? recK[curK - 1]  : 0;
+  const fmt = (x) => x === null ? '—' : x.toFixed(3);
 
   document.getElementById('topk-label').textContent =
-    `K = ${curK}  ·  P@K = ${curPrec.toFixed(3)}  ·  R@K = ${curRec.toFixed(3)}`;
+    `K = ${curK}  ·  P@K = ${fmt(curPrec)}  ·  R@K = ${fmt(curRec)}`;
 
   const Ks = precK.map((_, i) => i + 1);
 
@@ -1370,7 +1430,7 @@ function drawTopK() {
 function updateStats() {
   const { tp, fp, tn, fn, tpr, fpr, prec, f1 } = confusionAt(getThresh());
   const N = tp + fp + tn + fn;
-  const spec = 1 - fpr;
+  const spec = fpr === null ? null : 1 - fpr;
   const acc = N === 0 ? 0 : (tp + tn) / N;
 
   document.getElementById('cm-tp').textContent = tp;
@@ -1378,7 +1438,7 @@ function updateStats() {
   document.getElementById('cm-tn').textContent = tn;
   document.getElementById('cm-fn').textContent = fn;
 
-  const fmt = (x) => x.toFixed(3);
+  const fmt = (x) => x === null || !Number.isFinite(x) ? '—' : x.toFixed(3);
   document.getElementById('m-tpr').textContent  = fmt(tpr);
   document.getElementById('m-fpr').textContent  = fmt(fpr);
   document.getElementById('m-prec').textContent = fmt(prec);
