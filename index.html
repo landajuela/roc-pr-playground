@@ -421,6 +421,71 @@
 
   .katex { font-size: 0.95em !important; }
 
+  /* Pair-counting cross-check under the section 03 curves */
+  .auc-check {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    padding: 14px 20px;
+    margin-top: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px 24px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .auc-check .ac-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    flex: 0 0 auto;
+  }
+  .auc-check .ac-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+  .auc-check .ac-delta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Full-width collapsible footnote under the numbers, explaining the notation.
+     Summary label stays math-free: the row is uppercased, which would mangle
+     KaTeX subscripts. */
+  .auc-check details.ac-note {
+    flex: 1 1 100%;
+    border-top: 1px solid var(--rule);
+    padding-top: 11px;
+  }
+  .auc-check details.ac-note > summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    user-select: none;
+    transition: color 0.15s ease;
+  }
+  .auc-check details.ac-note > summary::-webkit-details-marker { display: none; }
+  .auc-check details.ac-note > summary:hover { color: var(--ink); }
+  .auc-check details.ac-note > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .auc-check details.ac-note > summary .chevron { margin-top: 0; }
+  .auc-check .ac-note-body {
+    font-size: 12px;
+    line-height: 1.65;
+    max-width: 100ch;
+    padding: 11px 0 2px 18px;
+  }
+  .auc-check .ac-note-body strong { color: var(--ink); font-weight: 600; }
+
   .model-spec {
     background: var(--paper);
     border: 1px solid var(--rule);
@@ -585,6 +650,22 @@
   </div>
 </div>
 
+<!-- The same AUC, counted instead of integrated. Not an approximation of the
+     trapezoid above: with tied scores collapsed into single thresholds the two
+     are the same quantity, so the difference is floating-point noise. -->
+<div class="auc-check">
+  <span class="ac-tag">Counting check</span>
+  <span>$\mathrm{AUC} = \dfrac{\#\{s_i > s_j\} + \tfrac12\,\#\{s_i = s_j\}}{n_{+}\cdot n_{-}}$ &nbsp;over all positive–negative pairs $(i,j)$</span>
+  <span class="ac-sub" id="ac-sub">—</span>
+  <span class="ac-delta" id="ac-delta">—</span>
+  <details class="ac-note">
+    <summary><span class="chevron"></span><span>What the tally counts</span></summary>
+    <div class="ac-note-body">
+      <strong>Reading $\#\{s_i > s_j\}$:</strong> the $\#\{\,\cdot\,\}$ is a <em>tally</em> — "how many pairs satisfy this". The index $i$ runs over the $n_{+}$ positives and $j$ over the $n_{-}$ negatives, so each of the $n_{+}\!\cdot n_{-}$ possible pairings is tested exactly once. That makes $\#\{s_i > s_j\}$ <strong>the number of positive–negative pairs the model ranked the right way round</strong> — the positive scored strictly above the negative — and $\#\{s_i = s_j\}$ the number it left tied, each worth half a win. Divide the tally by the number of pairs and you have the share of pairs ordered correctly, which <em>is</em> the AUC. No threshold is involved anywhere: only the relative order of the scores matters, which is why the tally above reproduces the area under the curve exactly rather than approximately.
+    </div>
+  </details>
+</div>
+
 <details class="tradeoff-note">
   <summary><span class="chevron"></span><span>Why precision and recall trade off</span></summary>
   <div class="tradeoff-body">
@@ -628,7 +709,7 @@
     </ol>
     <p><strong>Sanity check with real numbers (no calculus).</strong> With $n_{+}$ binders and $n_{-}$ non-binders, form all $n_{+}\!\cdot n_{-}$ possible binder–non-binder pairs. Then
       $$\mathrm{AUC}=\frac{\#\{\text{pairs where the binder scores higher}\}+\tfrac12\,\#\{\text{ties}\}}{n_{+}\cdot n_{-}}.$$
-      This is the <strong>Mann–Whitney $U$</strong> / Wilcoxon rank-sum statistic — it is what plotting software actually computes, and it is the discrete twin of the integral above.</p>
+      This is the <strong>Mann–Whitney $U$</strong> / Wilcoxon rank-sum statistic — it is what plotting software actually computes, and it is the discrete twin of the integral above. The <strong>counting check</strong> strip below the three curves evaluates exactly this fraction on the sample currently on screen, and prints its gap from the trapezoidal area next to it. The gap is never a rounding-off of one method against the other: with tied scores collapsed into a single threshold the trapezoid <em>is</em> this fraction, so what you see is floating-point noise around $10^{-16}$. The $\tfrac12$ tie term is what keeps that true in general — scores here are continuous, so the tie count stays at zero, but quantise the scores and counting strict wins alone would undercount by half the tie mass.</p>
     </div>
   </details>
 
@@ -794,6 +875,21 @@ function computeCurves(scoresPos, scoresNeg) {
     if (recallGain > 0) averagePrecision += recallGain * prec[i];
   }
 
+  // The AUC a second way: walk every positive–negative pair and count the ones
+  // the model ordered correctly, ties at half credit. Written as the literal
+  // double loop the definition describes rather than the O(n log n) rank trick,
+  // because the point here is to show the definition itself running — and at
+  // this page's largest sample it is a millisecond either way.
+  let pairWins = 0, pairTies = 0;
+  for (const sPos of scoresPos) {
+    for (const sNeg of scoresNeg) {
+      if (sPos > sNeg) pairWins++;
+      else if (sPos === sNeg) pairTies++;
+    }
+  }
+  const pairTotal = P * N;
+  const aucPairs = pairTotal === 0 ? null : (pairWins + 0.5 * pairTies) / pairTotal;
+
   const j = tpr.map((t, i) => t - fpr[i]);
   let jBestIdx = 0;
   for (let i = 1; i < j.length; i++) if (j[i] > j[jBestIdx]) jBestIdx = i;
@@ -830,6 +926,7 @@ function computeCurves(scoresPos, scoresNeg) {
     thresh, threshProb, tpr, fpr, prec, f1, j, jBestIdx,
     rocSorted: rocPairs, prSorted: prPairs,
     aucROC, averagePrecision,
+    aucPairs, pairWins, pairTies, pairTotal,
     precK, recK
   };
 }
@@ -1182,12 +1279,24 @@ function currentRocPoint() {
 }
 
 function drawRocPr() {
-  const { rocSorted, prSorted, aucROC, averagePrecision } = STATE.curves;
+  const { rocSorted, prSorted, aucROC, averagePrecision,
+          aucPairs, pairWins, pairTies, pairTotal } = STATE.curves;
   const { scoresPos, scoresNeg } = STATE.data;
   const pt = currentRocPoint();
   const prevalence = scoresPos.length / (scoresPos.length + scoresNeg.length);
   document.getElementById('auc-roc-label').textContent = `AUC = ${aucROC.toFixed(3)}`;
   document.getElementById('ap-label').textContent = `AP = ${averagePrecision.toFixed(3)}`;
+
+  // Counting check: the same number, reached by counting pairs instead of
+  // integrating. Six decimals so the agreement is visible, not just asserted.
+  const nf = (x) => x.toLocaleString('en-US');
+  document.getElementById('ac-sub').textContent =
+    `= (${nf(pairWins)} + ½·${nf(pairTies)}) / (${nf(scoresPos.length)} × ${nf(scoresNeg.length)})`
+    + ` = ${aucPairs === null ? '—' : aucPairs.toFixed(6)}`;
+  const delta = aucPairs === null ? null : Math.abs(aucPairs - aucROC);
+  document.getElementById('ac-delta').textContent =
+    `trapezoidal ROC area = ${aucROC.toFixed(6)}`
+    + `   ·   |Δ| = ${delta === null ? '—' : delta === 0 ? '0' : delta.toExponential(1)}`;
 
   const rocTraces = [
     { // diagonal reference
